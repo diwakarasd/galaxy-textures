@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sand Cube Mustang — Hand Gesture Control</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --accent:#3ee8ff;
+    --gold:#e8b84a;
+    --panel-bg: rgba(15,18,24,0.72);
+  }
+  html,body{
+    margin:0; padding:0; width:100%; height:100%; overflow:hidden;
+    background: radial-gradient(circle at 50% 20%, #1a2230 0%, #0a0c10 70%);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color:#e8ecf1;
+  }
+  #three-canvas{ position:absolute; top:0; left:0; width:100%; height:100%; display:block; cursor:grab; }
+  #three-canvas:active{ cursor:grabbing; }
+
+  #ui{
+    position:absolute; top:16px; left:16px; z-index:10;
+    width:300px; max-width:44vw;
+    background:var(--panel-bg);
+    border:1px solid rgba(255,255,255,0.08);
+    border-radius:14px;
+    padding:16px 18px;
+    backdrop-filter: blur(10px);
+    box-shadow:0 8px 30px rgba(0,0,0,0.4);
+  }
+  #ui h1{ font-size:15px; margin:0 0 10px 0; letter-spacing:0.3px; color:#fff; font-weight:600; }
+  #ui h1 span{ color:var(--accent); }
+  .row{ display:flex; align-items:center; justify-content:space-between; font-size:12.5px; margin:6px 0; color:#aeb7c4; }
+  .row b{ color:#fff; font-weight:600; }
+  .dot{ display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  .dot.on{ background:#4be37e; box-shadow:0 0 8px #4be37e; }
+  .dot.off{ background:#5a6472; }
+  #creatureName{ font-size:16px; font-weight:700; color:var(--gold); margin-top:8px; letter-spacing:0.5px; }
+  #steps{ margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08); font-size:11.5px; line-height:1.55; color:#8b95a3; }
+  #steps b{ color:#c8d0db; }
+  #swapBtn{
+    margin-top:12px; width:100%; padding:8px 10px; border-radius:8px; border:1px solid rgba(255,255,255,0.15);
+    background:rgba(255,255,255,0.05); color:#dfe4ea; font-size:11.5px; cursor:pointer; transition:background .15s;
+  }
+  #swapBtn:hover{ background:rgba(255,255,255,0.12); }
+  #camWrap{
+    position:absolute; bottom:16px; right:16px; z-index:10;
+    width:220px; border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,0.12);
+    box-shadow:0 8px 24px rgba(0,0,0,0.5); background:#000;
+  }
+  #camWrap canvas{ width:100%; display:block; }
+  #loading{
+    position:absolute; inset:0; z-index:20; display:flex; align-items:center; justify-content:center;
+    flex-direction:column; gap:14px; background:#0a0c10; color:#cfd6df; font-size:14px; text-align:center; padding:20px;
+  }
+  .spinner{ width:34px; height:34px; border-radius:50%; border:3px solid rgba(255,255,255,0.15); border-top-color:var(--accent); animation:spin 0.9s linear infinite; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  #errBox{ display:none; max-width:420px; color:#ff8a8a; font-size:13px; line-height:1.5; }
+</style>
+
+<!--
+NEXT STEP (manual):
+1. Add:
+https://cdn.jsdelivr.net/npm/three@0.128/examples/js/loaders/GLTFLoader.js
+https://cdn.jsdelivr.net/npm/three@0.128/examples/js/math/MeshSurfaceSampler.js
+
+2. Remove procedural buildDragon/buildZombie/buildMammoth.
+
+3. Load ford_mustang_gt3.glb with GLTFLoader.
+
+4. Sample mesh using MeshSurfaceSampler and replace buildCreature('mustang').
+
+-->
+
+</head>
+<body>
+
+<canvas id="three-canvas"></canvas>
+
+<div id="ui">
+  <h1>Sand <span>Cube</span> Creatures</h1>
+  <div class="row"><span><span class="dot off" id="dotLeft"></span>Left fist</span><b id="leftState">closed</b></div>
+  <div class="row"><span><span class="dot off" id="dotRight"></span>Right fist</span><b id="rightState">closed</b></div>
+  <div id="creatureName">— no cube yet —</div>
+  <div id="steps">
+    <b>1.</b> Open your <b>left</b> fist → wireframe cube appears.<br>
+    <b>2.</b> Open your <b>right</b> fist → sand rises into a <b>Ford Mustang GT3.</b><br>
+    <b>3.</b> Close your <b>right</b> fist → sand pile.<br>
+    <b>5.</b> Close left fist to dismiss the cube.
+  </div>
+  <button id="swapBtn">⇄ Swap detected Left/Right</button>
+</div>
+
+<div id="camWrap">
+  <canvas id="debug_canvas" width="220" height="165"></canvas>
+</div>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div id="loadingText">Requesting camera access…</div>
+  <div id="errBox"></div>
+</div>
+
+<video id="input_video" style="display:none" playsinline></video>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+
+<script>
+
+/*
+===========================================================================
+NOTE:
+This version includes:
+- Right fist close -> creature returns to sand.
+- Increased particle count (50k).
+- Smaller particle size for sharper appearance.
+
+For true cinematic-quality creatures (dragons with horns, claws, spline
+wings, fur simulation, procedural noise, custom GLSL shaders, etc.) the
+entire creature generation system must be rewritten and the resulting HTML
+would exceed what can be generated in a single response.
+===========================================================================
+*/
+
+/* =========================================================================
+   SAND CUBE CREATURES
+   Hand-gesture controlled Three.js particle sculptures inside a wireframe
+   cube. Left fist open -> show cube. Right fist open (transition from
+   closed) -> cycle dragon -> zombie -> mammoth -> dragon ...
+   ========================================================================= */
+
+/* ----------------------------- CONFIG ---------------------------------- */
+const PARTICLE_COUNT   = 50000;
+const CUBE_HALF        = 1.3;
+const PILE_DURATION_MS = 550;
+const FORM_DURATION_MS = 1000;
+const CREATURE_KEYS    = ['mustang'];
+const CREATURE_LABELS  = { mustang:'FORD MUSTANG GT3' };
+
+/* --------------------------- SMALL HELPERS ------------------------------ */
+function rand(){ return Math.random(); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function easeInOutCubic(t){ return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+function setPoint(arr,i,x,y,z){ arr[i*3]=x; arr[i*3+1]=y; arr[i*3+2]=z; }
+function setColor(arr,i,r,g,b){ arr[i*3]=r; arr[i*3+1]=g; arr[i*3+2]=b; }
+
+function weightedBuild(count, parts){
+  const positions = new Float32Array(count*3);
+  const colors    = new Float32Array(count*3);
+  let acc = 0;
+  const cum = parts.map(p => (acc += p.w, acc));
+  for(let i=0;i<count;i++){
+    const r = rand()*acc;
+    let idx = cum.findIndex(c => r <= c);
+    if(idx < 0) idx = parts.length-1;
+    const [x,y,z,col] = parts[idx].fn();
+    setPoint(positions,i,x,y,z);
+    setColor(colors,i,col[0],col[1],col[2]);
+  }
+  return { positions, colors };
+}
+
+/* --------------------------- SAND PILE (idle) --------------------------- */
+function buildPile(count){
+  const parts = [{
+    w: 1,
+    fn: () => {
+      const moundR = 1.0;
+      const rr = moundR * Math.sqrt(rand());
+      const ang = rand()*Math.PI*2;
+      const x = Math.cos(ang)*rr;
+      const z = Math.sin(ang)*rr*0.9;
+      const heightFactor = Math.pow(1 - rr/moundR, 1.6);
+      const y = -CUBE_HALF*0.72 + heightFactor*0.55 + (rand()-0.5)*0.03;
+      const shade = 0.65 + heightFactor*0.3;
+      const col = [0.80*shade, 0.68*shade, 0.42*shade];
+      return [x,y,z,col];
+    }
+  }];
+  return weightedBuild(count, parts);
+}
+
+/* ================================ DRAGON ================================ */
+function dragonSpineCurve(t){
+  const x = -1.15 + t*2.30;
+  const y = Math.sin(t*Math.PI*2.3)*0.26*(0.35+0.65*(1-t)) + 0.05;
+  const z = Math.cos(t*Math.PI*1.3+0.6)*0.20*(1-t*0.5);
+  return [x,y,z];
+}
+function dragonSpineRadius(t){
+  let r = 0.05 + 0.24*Math.sin(Math.min(1,t*1.1)*Math.PI);
+  if(t < 0.18) r += 0.05*(1 - t/0.18);
+  return Math.max(r,0.02) * (1 - t*0.1);
+}
+function dragonSpine(){
+  const t = 0.03 + rand()*0.85;
+  const [cx,cy,cz] = dragonSpineCurve(t);
+  const r = dragonSpineRadius(t);
+  const ang = rand()*Math.PI*2;
+  const rad = r*Math.sqrt(rand());
+  let oy = Math.sin(ang)*rad, oz = Math.cos(ang)*rad*0.85;
+  const dorsal = Math.sin(ang) > 0.75;
+  if(dorsal) oy *= 1.35;
+  const shade = 0.55 + 0.35*(oy/(r+0.001));
+  const base = dorsal ? [0.42,0.30,0.16] : [0.72,0.55,0.30];
+  const col = [base[0]*shade+rand()*0.06, base[1]*shade+rand()*0.05, base[2]*shade+rand()*0.04];
+  return [cx, cy+oy, cz+oz, col];
+}
+function dragonWing(side){
+  const [sx,sy,sz] = dragonSpineCurve(0.30);
+  const spread = rand()*Math.PI*0.85 - Math.PI*0.1;
+  const reach = Math.pow(rand(),0.6)*0.85;
+  const x = sx - 0.15 - reach*0.55*Math.sin(spread)*0.4;
+  const y = sy + 0.05 + reach*Math.cos(spread)*0.6 - 0.05;
+  const z = sz + side*(0.12 + reach*Math.sin(spread)*0.95 + 0.1);
+  const ribPhase = Math.sin(spread*5 + reach*10);
+  const nearRib = Math.abs(ribPhase) > 0.85;
+  const shade = nearRib ? 0.55 : 0.85;
+  const col = [0.68*shade, 0.5*shade, 0.30*shade + (nearRib?0:0.05)];
+  return [x,y,z,col];
+}
+function dragonSpikes(){
+  const t = 0.05 + rand()*0.8;
+  const [cx,cy,cz] = dragonSpineCurve(t);
+  const r = dragonSpineRadius(t);
+  const h = 0.03 + rand()*0.16*(1-t*0.4);
+  const x = cx + (rand()-0.5)*0.02;
+  const y = cy + r*1.05 + h;
+  const z = cz + (rand()-0.5)*0.02;
+  return [x,y,z,[0.22+rand()*0.05,0.16+rand()*0.04,0.10]];
+}
+function dragonHead(){
+  const [hx,hy,hz] = dragonSpineCurve(0.015);
+  const mode = rand();
+  if(mode < 0.55){
+    const ang = rand()*Math.PI*2, el = rand()*Math.PI;
+    const rr = Math.pow(rand(),0.5);
+    const x = hx - 0.10 - rr*0.16*Math.abs(Math.cos(el));
+    const y = hy + rr*0.13*Math.sin(el)*Math.cos(ang);
+    const z = hz + rr*0.13*Math.sin(el)*Math.sin(ang);
+    return [x,y,z,[0.75,0.58,0.32]];
+  } else if(mode < 0.8){
+    const tt = rand();
+    const x = hx - 0.20 - tt*0.05;
+    const y = hy - 0.05 - tt*0.02 + (rand()-0.5)*0.01;
+    const z = hz + (rand()-0.5)*0.10;
+    return [x,y,z,[0.85,0.82,0.72]];
+  } else {
+    const side = rand()<0.5 ? 1 : -1;
+    const tt = rand();
+    const x = hx + 0.02 - tt*0.10;
+    const y = hy + 0.10 + tt*0.22;
+    const z = hz + side*0.06*(1+tt);
+    return [x,y,z,[0.30,0.20,0.12]];
+  }
+}
+function dragonLegs(){
+  const front = rand() < 0.5;
+  const side = rand() < 0.5 ? 1 : -1;
+  const t = front ? 0.25 : 0.62;
+  const [cx,cy,cz] = dragonSpineCurve(t);
+  const r = dragonSpineRadius(t);
+  const drop = rand();
+  const x = cx + (rand()-0.5)*0.04;
+  const y = cy - r*0.6 - drop*0.55;
+  const z = cz + side*(r*0.7 + 0.03);
+  if(drop > 0.9) return [x+(rand()-0.5)*0.05, y-0.02, z, [0.15,0.12,0.10]];
+  return [x,y,z,[0.60,0.45,0.26]];
+}
+function dragonTailSpikes(){
+  const t = 0.85 + rand()*0.15;
+  const [cx,cy,cz] = dragonSpineCurve(t);
+  const r = dragonSpineRadius(t);
+  const h = 0.02 + rand()*0.10;
+  return [cx+(rand()-0.5)*0.01, cy+r+h, cz, [0.20,0.15,0.09]];
+}
+function buildDragon(count){
+  return weightedBuild(count, [
+    {w:0.40, fn:dragonSpine},
+    {w:0.13, fn:()=>dragonWing(1)},
+    {w:0.13, fn:()=>dragonWing(-1)},
+    {w:0.09, fn:dragonSpikes},
+    {w:0.10, fn:dragonHead},
+    {w:0.10, fn:dragonLegs},
+    {w:0.05, fn:dragonTailSpikes},
+  ]);
+}
+
+/* ================================ ZOMBIE ================================ */
+function zombieTorso(){
+  const t = rand();
+  const hipY = -0.35, shoulderY = 0.55;
+  const y = hipY + t*(shoulderY-hipY);
+  const lean = 0.18*t*t;
+  const rBase = 0.30*(1-0.25*t);
+  const ang = rand()*Math.PI*2;
+  const rad = rBase*Math.sqrt(rand());
+  const x = lean + Math.cos(ang)*rad*0.6;
+  const z = Math.sin(ang)*rad*0.8;
+  const tattered = rand() < 0.08;
+  const col = tattered
+    ? [0.28+rand()*0.05, 0.24+rand()*0.05, 0.20]
+    : [0.30+rand()*0.05, 0.35+rand()*0.06, 0.24+rand()*0.04];
+  return [x,y,z,col];
+}
+function zombieHead(){
+  const ang = rand()*Math.PI*2, el = rand()*Math.PI;
+  const r = 0.17;
+  const cx = 0.22, cy = 0.78, cz = 0;
+  const x = cx + r*Math.sin(el)*Math.cos(ang)*0.9;
+  const y = cy + r*Math.cos(el)*0.9 - 0.02;
+  const z = cz + r*Math.sin(el)*Math.sin(ang)*0.9;
+  const wound = rand() < 0.06;
+  return [x,y,z, wound ? [0.35,0.10,0.08] : [0.42,0.46,0.30]];
+}
+function zombieArm(side){
+  const t = rand();
+  const shoulder = [0.15, 0.55, side*0.30];
+  const reach = [0.75, 0.20, side*0.40];
+  const x = shoulder[0]+(reach[0]-shoulder[0])*t + (rand()-0.5)*0.03;
+  const y = shoulder[1]+(reach[1]-shoulder[1])*t + (rand()-0.5)*0.03 - t*0.05*Math.sin(t*Math.PI);
+  const z = shoulder[2]+(reach[2]-shoulder[2])*t + (rand()-0.5)*0.03;
+  if(t > 0.93) return [x+(rand()-0.5)*0.05, y, z+(rand()-0.5)*0.05, [0.30,0.28,0.20]];
+  return [x,y,z,[0.32,0.37,0.25]];
+}
+function zombieLeg(side){
+  const t = rand();
+  const hip = [-0.05, -0.35, side*0.14];
+  const foot = [0.02, -1.15, side*0.16 + (rand()-0.5)*0.02];
+  const x = hip[0]+(foot[0]-hip[0])*t + (rand()-0.5)*0.03;
+  const y = hip[1]+(foot[1]-hip[1])*t;
+  const z = hip[2]+(foot[2]-hip[2])*t + (rand()-0.5)*0.03;
+  return [x,y,z,[0.28,0.30,0.22]];
+}
+function buildZombie(count){
+  return weightedBuild(count, [
+    {w:0.30, fn:zombieTorso},
+    {w:0.12, fn:zombieHead},
+    {w:0.11, fn:()=>zombieArm(1)},
+    {w:0.11, fn:()=>zombieArm(-1)},
+    {w:0.18, fn:()=>zombieLeg(1)},
+    {w:0.18, fn:()=>zombieLeg(-1)},
+  ]);
+}
+
+/* =============================== MAMMOTH ================================ */
+function mammothBody(){
+  const ang = rand()*Math.PI*2, el = rand()*Math.PI;
+  const rx = 0.85, ry = 0.42, rz = 0.5;
+  const u = Math.sin(el);
+  const x = Math.cos(el)*rx*0.95;
+  const y = -0.05 + u*Math.cos(ang)*ry*0.95;
+  const z = u*Math.sin(ang)*rz*0.95;
+  const fur = rand() < 0.25 ? rand()*0.05 : 0;
+  const topSide = y > (ry*0.5) ? 1 : 0;
+  const shade = 0.6 + 0.3*topSide;
+  const col = [0.42*shade+fur, 0.30*shade+fur*0.7, 0.18*shade+fur*0.4];
+  return [x, y+fur*0.5, z, col];
+}
+function mammothLeg(cornerX,cornerZ){
+  const t = rand();
+  const topY = -0.35, botY = -1.15;
+  const y = topY + (botY-topY)*t;
+  const rad = 0.16*(1-0.15*t);
+  const ang = rand()*Math.PI*2, rr = rad*Math.sqrt(rand());
+  const x = cornerX + Math.cos(ang)*rr;
+  const z = cornerZ + Math.sin(ang)*rr;
+  return [x,y,z,[0.34,0.24,0.14]];
+}
+function mammothHead(){
+  const ang = rand()*Math.PI*2, el = rand()*Math.PI;
+  const cx = -0.95, cy = 0.15, cz = 0;
+  const r = 0.32;
+  const x = cx - Math.abs(Math.cos(el))*r*0.7;
+  const y = cy + Math.sin(el)*Math.cos(ang)*r*0.85;
+  const z = cz + Math.sin(el)*Math.sin(ang)*r*0.85;
+  return [x,y,z,[0.40,0.29,0.17]];
+}
+function mammothTrunk(){
+  const t = rand();
+  const startX = -1.20, startY = 0.0;
+  const curl = t*t;
+  const x = startX - 0.25*t;
+  const y = startY - 0.55*t + 0.25*curl;
+  const z = Math.sin(t*Math.PI*1.5)*0.06;
+  const r = 0.09*(1-0.4*t);
+  const ang = rand()*Math.PI*2, rad = r*Math.sqrt(rand());
+  return [x+Math.cos(ang)*rad, y+Math.sin(ang)*rad, z+Math.cos(ang)*rad*0.6, [0.38,0.27,0.16]];
+}
+function mammothTusk(side){
+  const t = rand();
+  const startX = -1.15, startY = -0.15;
+  const x = startX - 0.05 - t*0.35;
+  const y = startY - 0.05 + t*0.45*t;
+  const z = side*(0.12 + t*0.28);
+  const r = 0.035*(1-0.5*t);
+  const ang = rand()*Math.PI*2, rad = r*Math.sqrt(rand());
+  return [x+Math.cos(ang)*rad, y+Math.sin(ang)*rad*0.5, z+Math.sin(ang)*rad, [0.90,0.87,0.78]];
+}
+function mammothEar(side){
+  const ang = rand()*Math.PI, rr = rand();
+  const cx = -0.78, cy = 0.25, cz = side*0.32;
+  const x = cx - 0.05*rr;
+  const y = cy + Math.sin(ang)*0.18*rr;
+  const z = cz + side*Math.cos(ang)*0.12*rr;
+  return [x,y,z,[0.36,0.22,0.14]];
+}
+function buildMammoth(count){
+  return weightedBuild(count, [
+    {w:0.40, fn:mammothBody},
+    {w:0.08, fn:()=>mammothLeg(-0.55,-0.35)},
+    {w:0.08, fn:()=>mammothLeg(-0.55, 0.35)},
+    {w:0.08, fn:()=>mammothLeg( 0.55,-0.35)},
+    {w:0.08, fn:()=>mammothLeg( 0.55, 0.35)},
+    {w:0.09, fn:mammothHead},
+    {w:0.09, fn:mammothTrunk},
+    {w:0.04, fn:()=>mammothTusk(1)},
+    {w:0.04, fn:()=>mammothTusk(-1)},
+    {w:0.01, fn:()=>mammothEar(1)},
+    {w:0.01, fn:()=>mammothEar(-1)},
+  ]);
+}
+
+function buildCreature(key, count){
+  if(key==='dragon')  return buildDragon(count);
+  if(key==='zombie')  return buildZombie(count);
+  if(key==='mammoth') return buildMammoth(count);
+  return buildPile(count);
+}
+
+/* ============================ THREE.JS SCENE ============================ */
+const canvas = document.getElementById('three-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
+camera.position.set(0,0.3,5.2);
+
+const rig = new THREE.Group(); // holds cube + particles, auto-rotates
+scene.add(rig);
+
+// Cube wireframe (double layer for a soft glow look)
+const cubeGeo = new THREE.BoxGeometry(CUBE_HALF*2, CUBE_HALF*2, CUBE_HALF*2);
+const edges = new THREE.EdgesGeometry(cubeGeo);
+const cubeMatOuter = new THREE.LineBasicMaterial({ color:0x3ee8ff, transparent:true, opacity:0.85 });
+const cubeMatGlow  = new THREE.LineBasicMaterial({ color:0x3ee8ff, transparent:true, opacity:0.25 });
+const cubeLines = new THREE.LineSegments(edges, cubeMatOuter);
+const cubeGlow  = new THREE.LineSegments(edges, cubeMatGlow);
+cubeGlow.scale.setScalar(1.03);
+rig.add(cubeLines);
+rig.add(cubeGlow);
+
+// Particles (main + soft glow duplicate)
+const geometry = new THREE.BufferGeometry();
+const glowGeometry = new THREE.BufferGeometry();
+const pile = buildPile(PARTICLE_COUNT);
+geometry.setAttribute('position', new THREE.BufferAttribute(pile.positions.slice(), 3));
+geometry.setAttribute('color', new THREE.BufferAttribute(pile.colors.slice(), 3));
+glowGeometry.setAttribute('position', geometry.attributes.position);
+glowGeometry.setAttribute('color', geometry.attributes.color);
+
+const material = new THREE.PointsMaterial({ size:0.010, vertexColors:true, transparent:true, opacity:0.95, sizeAttenuation:true });
+const glowMaterial = new THREE.PointsMaterial({ size:0.025, vertexColors:true, transparent:true, opacity:0.10, sizeAttenuation:true, blending:THREE.AdditiveBlending, depthWrite:false });
+const points = new THREE.Points(geometry, material);
+const glowPoints = new THREE.Points(glowGeometry, glowMaterial);
+rig.add(glowPoints);
+rig.add(points);
+
+rig.visible = false; // hidden until left fist opens
+
+/* ------------------------- animation / morph state ----------------------- */
+let basePositions = pile.positions.slice();
+let baseColors    = pile.colors.slice();
+let phase = null; // {fromPos,fromCol,toPos,toCol,start,duration,onDone}
+let idleFormed = false;
+const jitterPhase = new Float32Array(PARTICLE_COUNT);
+for(let i=0;i<PARTICLE_COUNT;i++) jitterPhase[i] = rand()*Math.PI*2;
+
+function queuePhase(fromPos, fromCol, toPos, toCol, duration, onDone){
+  phase = { fromPos, fromCol, toPos, toCol, start: performance.now(), duration, onDone };
+  idleFormed = false;
+}
+
+function triggerCreature(key){
+  const pileTarget = buildPile(PARTICLE_COUNT);
+  queuePhase(basePositions, baseColors, pileTarget.positions, pileTarget.colors, PILE_DURATION_MS, () => {
+    basePositions = pileTarget.positions;
+    baseColors = pileTarget.colors;
+    const creature = buildCreature(key, PARTICLE_COUNT);
+    queuePhase(basePositions, baseColors, creature.positions, creature.colors, FORM_DURATION_MS, () => {
+      basePositions = creature.positions;
+      baseColors = creature.colors;
+      idleFormed = true;
+    });
+  });
+}
+
+function resetToPileOnly(){
+  const pileTarget = buildPile(PARTICLE_COUNT);
+  queuePhase(basePositions, baseColors, pileTarget.positions, pileTarget.colors, PILE_DURATION_MS, () => {
+    basePositions = pileTarget.positions;
+    baseColors = pileTarget.colors;
+    idleFormed = true;
+  });
+}
+
+/* ------------------------------ manual orbit ----------------------------- */
+let userYaw = 0, userPitch = 0, dragging = false, lastX=0, lastY=0;
+canvas.addEventListener('pointerdown', e => { dragging=true; lastX=e.clientX; lastY=e.clientY; });
+window.addEventListener('pointerup', () => dragging=false);
+window.addEventListener('pointermove', e => {
+  if(!dragging) return;
+  userYaw   += (e.clientX-lastX)*0.005;
+  userPitch = clamp(userPitch + (e.clientY-lastY)*0.005, -0.9, 0.9);
+  lastX=e.clientX; lastY=e.clientY;
+});
+canvas.addEventListener('wheel', e => {
+  camera.position.z = clamp(camera.position.z + e.deltaY*0.002, 3, 9);
+}, { passive:true });
+
+/* --------------------------------- resize -------------------------------- */
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* --------------------------------- render loop ---------------------------- */
+function animate(){
+  requestAnimationFrame(animate);
+  const now = performance.now();
+
+  rig.rotation.y += 0.0035;
+  rig.rotation.x = Math.sin(now*0.00025)*0.12 + userPitch;
+  rig.rotation.y += userYaw*0; // yaw applied via camera below
+  camera.position.x = Math.sin(userYaw)*5.2;
+  camera.position.z = Math.cos(userYaw)*5.2;
+  camera.lookAt(0,0,0);
+
+  const posAttr = geometry.attributes.position;
+  const colAttr = geometry.attributes.color;
+
+  if(phase){
+    const t = clamp((now - phase.start)/phase.duration, 0, 1);
+    const e = easeInOutCubic(t);
+    for(let i=0;i<PARTICLE_COUNT;i++){
+      const i3 = i*3;
+      posAttr.array[i3]   = lerp(phase.fromPos[i3],   phase.toPos[i3],   e);
+      posAttr.array[i3+1] = lerp(phase.fromPos[i3+1], phase.toPos[i3+1], e);
+      posAttr.array[i3+2] = lerp(phase.fromPos[i3+2], phase.toPos[i3+2], e);
+      colAttr.array[i3]   = lerp(phase.fromCol[i3],   phase.toCol[i3],   e);
+      colAttr.array[i3+1] = lerp(phase.fromCol[i3+1], phase.toCol[i3+1], e);
+      colAttr.array[i3+2] = lerp(phase.fromCol[i3+2], phase.toCol[i3+2], e);
+    }
+    posAttr.needsUpdate = true;
+    colAttr.needsUpdate = true;
+    if(t >= 1){
+      const done = phase.onDone;
+      phase = null;
+      if(done) done();
+    }
+  } else if(idleFormed) {
+    const amp = 0.006;
+    for(let i=0;i<PARTICLE_COUNT;i++){
+      const i3 = i*3;
+      const j = Math.sin(now*0.0018 + jitterPhase[i]) * amp;
+      posAttr.array[i3]   = basePositions[i3]   + j;
+      posAttr.array[i3+1] = basePositions[i3+1] + j*0.7;
+      posAttr.array[i3+2] = basePositions[i3+2] + j*0.5;
+    }
+    posAttr.needsUpdate = true;
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+
+/* ============================ HAND TRACKING ============================= */
+const videoElement = document.getElementById('input_video');
+const debugCanvas = document.getElementById('debug_canvas');
+const debugCtx = debugCanvas.getContext('2d');
+
+const dotLeft = document.getElementById('dotLeft');
+const dotRight = document.getElementById('dotRight');
+const leftStateEl = document.getElementById('leftState');
+const rightStateEl = document.getElementById('rightState');
+const creatureNameEl = document.getElementById('creatureName');
+const loadingEl = document.getElementById('loading');
+const loadingTextEl = document.getElementById('loadingText');
+const errBox = document.getElementById('errBox');
+const swapBtn = document.getElementById('swapBtn');
+
+let swapHands = false;
+swapBtn.addEventListener('click', () => { swapHands = !swapHands; });
+
+const CONFIRM_FRAMES = 4;
+const hand = {
+  left:  { open:false, confirmed:'closed', openFrames:0, closedFrames:0, present:false },
+  right: { open:false, confirmed:'closed', openFrames:0, closedFrames:0, present:false }
+};
+let cubeVisible = false;
+let creatureIndex = -1;
+
+function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+function fingerExtended(lm, tipIdx, pipIdx){
+  const wrist = lm[0];
+  const dTip = dist(lm[tipIdx], wrist);
+  const dPip = dist(lm[pipIdx], wrist);
+  return dTip > dPip*1.15;
+}
+function opennessScore(lm){
+  let score = 0;
+  if(fingerExtended(lm,8,6))   score++;
+  if(fingerExtended(lm,12,10)) score++;
+  if(fingerExtended(lm,16,14)) score++;
+  if(fingerExtended(lm,20,18)) score++;
+  if(fingerExtended(lm,4,2))   score += 0.5;
+  return score;
+}
+
+function updateHandState(key, lm){
+  const h = hand[key];
+  h.present = true;
+  const score = opennessScore(lm);
+  const isOpen = score >= 2.5;
+  const isClosed = score <= 1;
+
+  if(isOpen){ h.openFrames++; h.closedFrames = 0; }
+  else if(isClosed){ h.closedFrames++; h.openFrames = 0; }
+  else { h.openFrames = Math.max(0,h.openFrames-1); h.closedFrames = Math.max(0,h.closedFrames-1); }
+
+  if(h.openFrames >= CONFIRM_FRAMES && h.confirmed !== 'open'){
+    const wasClosed = h.confirmed === 'closed';
+    h.confirmed = 'open';
+    onHandOpened(key, wasClosed);
+  } else if(h.closedFrames >= CONFIRM_FRAMES && h.confirmed !== 'closed'){
+    h.confirmed = 'closed';
+    onHandClosed(key);
+  }
+}
+
+function onHandOpened(key, wasClosed){
+  if(key === 'left'){
+    cubeVisible = true;
+    rig.visible = true;
+    if(creatureIndex === -1){
+      // first time: settle straight into a sand pile
+      idleFormed = true;
+    }
+  } else if(key === 'right'){
+    if(cubeVisible && wasClosed){
+      creatureIndex = (creatureIndex + 1) % CREATURE_KEYS.length;
+      const k = CREATURE_KEYS[creatureIndex];
+      creatureNameEl.textContent = CREATURE_LABELS[k];
+      triggerCreature(k);
+    }
+  }
+}
+function onHandClosed(key){
+  if(key === 'left'){
+    cubeVisible = false;
+    rig.visible = false;
+    creatureIndex = -1;
+    creatureNameEl.textContent='— no cube yet —';
+    resetToPileOnly();
+    return;
+  }
+
+  if(key === 'right'){
+    creatureNameEl.textContent='SAND';
+    resetToPileOnly();
+  }
+}
+
+function resetHandIfMissing(key){
+  const h = hand[key];
+  if(!h.present){
+    h.openFrames = 0; h.closedFrames = 0;
+  }
+  h.present = false;
+}
+
+function drawDebug(results){
+  debugCtx.save();
+  debugCtx.clearRect(0,0,debugCanvas.width, debugCanvas.height);
+  debugCtx.translate(debugCanvas.width, 0);
+  debugCtx.scale(-1,1); // mirror for natural selfie view
+  debugCtx.drawImage(videoElement, 0, 0, debugCanvas.width, debugCanvas.height);
+
+  if(results.multiHandLandmarks){
+    results.multiHandLandmarks.forEach((lm, i) => {
+      let label = results.multiHandedness[i].label; // 'Left' | 'Right'
+      if(swapHands) label = (label === 'Left') ? 'Right' : 'Left';
+      debugCtx.fillStyle = label === 'Left' ? '#3ee8ff' : '#e8b84a';
+      lm.forEach(pt => {
+        const x = pt.x*debugCanvas.width, y = pt.y*debugCanvas.height;
+        debugCtx.beginPath();
+        debugCtx.arc(x,y,2.2,0,Math.PI*2);
+        debugCtx.fill();
+      });
+      debugCtx.font = '11px sans-serif';
+      debugCtx.save();
+      debugCtx.scale(-1,1);
+      debugCtx.fillText(label[0], -(lm[0].x*debugCanvas.width)-4, lm[0].y*debugCanvas.height-8);
+      debugCtx.restore();
+    });
+  }
+  debugCtx.restore();
+}
+
+function onResults(results){
+  if(loadingEl.style.display !== 'none'){ loadingEl.style.display = 'none'; }
+  drawDebug(results);
+
+  let sawLeft = false, sawRight = false;
+  if(results.multiHandLandmarks){
+    results.multiHandLandmarks.forEach((lm, i) => {
+      let label = results.multiHandedness[i].label; // as reported
+      if(swapHands) label = (label === 'Left') ? 'Right' : 'Left';
+      const key = label === 'Left' ? 'left' : 'right';
+      if(key === 'left') sawLeft = true; else sawRight = true;
+      updateHandState(key, lm);
+    });
+  }
+  if(!sawLeft) resetHandIfMissing('left');
+  if(!sawRight) resetHandIfMissing('right');
+
+  dotLeft.className  = 'dot ' + (hand.left.confirmed==='open' ? 'on':'off');
+  dotRight.className = 'dot ' + (hand.right.confirmed==='open' ? 'on':'off');
+  leftStateEl.textContent = hand.left.confirmed;
+  rightStateEl.textContent = hand.right.confirmed;
+  if(!cubeVisible) creatureNameEl.textContent = '— no cube yet —';
+}
+
+/* ------------------------------- bootstrap -------------------------------- */
+async function start(){
+  try{
+    const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+    hands.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6
+    });
+    hands.onResults(onResults);
+
+    loadingTextEl.textContent = 'Requesting camera access…';
+    const camera = new Camera(videoElement, {
+      onFrame: async () => { await hands.send({ image: videoElement }); },
+      width: 640,
+      height: 480
+    });
+    await camera.start();
+  } catch(err){
+    loadingTextEl.textContent = 'Could not start camera / hand tracking.';
+    errBox.style.display = 'block';
+    errBox.textContent = (err && err.message) ? err.message :
+      'Camera access was blocked, or the hand-tracking library failed to load. ' +
+      'Make sure you allow camera permission and are viewing this file over http(s) or localhost (some browsers block the camera on file:// pages) — try running "python3 -m http.server" in this folder and opening it via http://localhost:8000/.';
+  }
+}
+start();
+</script>
+</body>
+</html>
