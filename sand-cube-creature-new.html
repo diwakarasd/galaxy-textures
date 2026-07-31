@@ -68,7 +68,7 @@
   <div id="creatureName">— no cube yet —</div>
   <div id="steps">
     
-     Close &amp; open right or left fist to cycle: <b>Ferrari → Albert Wesker → Astro Cannon → Bumblebee → Psylocke</b> (then loops).<br>
+     Close &amp; open right or left fist to cycle: <b>Dragon → Ferrari → Albert Wesker → Astro Cannon → Bumblebee → Psylocke</b> (then loops).<br>
   
   </div>
   
@@ -121,6 +121,7 @@ const FORM_DURATION_MS = 1000;
 const MODEL_FIT_SIZE   = 2.5; // longest model dimension is scaled to this size (larger = fills more of the cube)
 
 const GLB_MODELS = [
+  { key:'dragon',            file:'dragon.glb',            label:'dragon' },
   { key:'ferrari',            file:'ferrari.glb',            label:'FERRARI' },
   { key:'albert_wesker',      file:'albert_wesker.glb',      label:'ALBERT WESKER' },
   { key:'astro_cannon',       file:'astro_cannon.glb',       label:'ASTRO CANNON' },
@@ -129,6 +130,11 @@ const GLB_MODELS = [
 ];
 const MODEL_TRANSFORMS = {
 
+  dragon: {
+    rotation: [0, 0, 0],
+    offset: [0,0,0]
+  },
+  
   ferrari: {
     rotation: [-Math.PI/2, 0, 0],
     offset: [0,0,0]
