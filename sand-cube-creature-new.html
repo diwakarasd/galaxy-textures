@@ -39,11 +39,8 @@
   #creatureName{ font-size:16px; font-weight:700; color:var(--gold); margin-top:8px; letter-spacing:0.5px; }
   #steps{ margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08); font-size:11.5px; line-height:1.55; color:#8b95a3; }
   #steps b{ color:#c8d0db; }
-  #swapBtn{
-    margin-top:12px; width:100%; padding:8px 10px; border-radius:8px; border:1px solid rgba(255,255,255,0.15);
-    background:rgba(255,255,255,0.05); color:#dfe4ea; font-size:11.5px; cursor:pointer; transition:background .15s;
-  }
-  #swapBtn:hover{ background:rgba(255,255,255,0.12); }
+ 
+  
   #camWrap{
     position:absolute; bottom:16px; right:16px; z-index:10;
     width:220px; border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,0.12);
@@ -70,12 +67,11 @@
   <div class="row"><span><span class="dot off" id="dotModel"></span>Sculptures</span><b id="modelState">0/5</b></div>
   <div id="creatureName">— no cube yet —</div>
   <div id="steps">
-    <b>1.</b> Open your <b>left</b> fist → wireframe cube appears.<br>
-    <b>2.</b> Open your <b>right</b> fist → sand rises into the first sculpture.<br>
-    <b>3.</b> Close &amp; open right fist again to cycle: <b>Ferrari → Albert Wesker → Astro Cannon → Bumblebee → Psylocke</b> (then loops).<br>
-    <b>4.</b> Close left fist to dismiss the cube.
+    
+     Close &amp; open right or left fist to cycle: <b>Ferrari → Albert Wesker → Astro Cannon → Bumblebee → Psylocke</b> (then loops).<br>
+  
   </div>
-  <button id="swapBtn">⇄ Swap detected Left/Right</button>
+  
 </div>
 
 <div id="camWrap">
@@ -535,7 +531,7 @@ const creatureNameEl = document.getElementById('creatureName');
 const loadingEl = document.getElementById('loading');
 const loadingTextEl = document.getElementById('loadingText');
 const errBox = document.getElementById('errBox');
-const swapBtn = document.getElementById('swapBtn');
+
 
 let cameraReady = false;
 
@@ -563,8 +559,7 @@ function updateLoadingScreen(){
   }
 }
 
-let swapHands = false;
-swapBtn.addEventListener('click', () => { swapHands = !swapHands; });
+
 
 const CONFIRM_FRAMES = 4;
 const hand = {
@@ -647,7 +642,6 @@ function drawDebug(results){
   if(results.multiHandLandmarks){
     results.multiHandLandmarks.forEach((lm, i) => {
       let label = results.multiHandedness[i].label; // 'Left' | 'Right'
-      if(swapHands) label = (label === 'Left') ? 'Right' : 'Left';
       debugCtx.fillStyle = label === 'Left' ? '#3ee8ff' : '#e8b84a';
       lm.forEach(pt => {
         const x = pt.x*debugCanvas.width, y = pt.y*debugCanvas.height;
@@ -674,7 +668,7 @@ function onResults(results){
   if(results.multiHandLandmarks){
     results.multiHandLandmarks.forEach((lm, i) => {
       let label = results.multiHandedness[i].label; // as reported
-      if(swapHands) label = (label === 'Left') ? 'Right' : 'Left';
+     
       const key = label === 'Left' ? 'left' : 'right';
       if(key === 'left') sawLeft = true; else sawRight = true;
       updateHandState(key, lm);
