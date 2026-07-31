@@ -377,11 +377,24 @@ root.position.sub(center);
 const maxDim = Math.max(size.x, size.y, size.z);
 const scale = MODEL_FIT_SIZE / maxDim;
 
-root.scale.setScalar(scale);
+const t = MODEL_TRANSFORMS[m.key] || {
+    scale: 1,
+    rotation: [0, 0, 0],
+    offset: [0, 0, 0]
+};
 
-root.rotation.set(0,0,0);
+root.scale.setScalar(scale * t.scale);
 
-// <-- ADD THESE 2 LINES HERE
+root.rotation.set(
+    t.rotation[0],
+    t.rotation[1],
+    t.rotation[2]
+);
+
+root.position.x += t.offset[0];
+root.position.y += t.offset[1];
+root.position.z += t.offset[2];
+
 window.loadedModels ??= {};
 window.loadedModels[m.key] = root;
 
