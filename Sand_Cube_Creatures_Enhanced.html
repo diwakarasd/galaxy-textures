@@ -124,9 +124,9 @@ const PARTICLE_COUNT   = 50000;
 const CUBE_HALF        = 1.3;
 const PILE_DURATION_MS = 550;
 const FORM_DURATION_MS = 1000;
-const CREATURE_KEYS    = ['mustang','dragon', 'zombie', 'mammoth'];
+const CREATURE_KEYS    = ['sand','mustang','dragon', 'zombie', 'mammoth'];
 
-const CREATURE_LABELS  = { mustang:'FORD MUSTANG GT3', dragon: 'DRAGON', zombie: 'ZOMBIE', mammoth: 'MAMMOTH' };
+const CREATURE_LABELS  = { sand:'SAND',mustang:'FORD MUSTANG GT3', dragon: 'DRAGON', zombie: 'ZOMBIE', mammoth: 'MAMMOTH' };
 
 /* --------------------------- SMALL HELPERS ------------------------------ */
 function rand(){ return Math.random(); }
@@ -508,7 +508,7 @@ function(gltf){
     rig.add(mustang);
 }
 );
-rig.visible = false; // hidden until left fist opens
+rig.visible = true; // hidden until left fist opens
 
 /* ------------------------- animation / morph state ----------------------- */
 let basePositions = pile.positions.slice();
@@ -524,7 +524,19 @@ function queuePhase(fromPos, fromCol, toPos, toCol, duration, onDone){
 }
 
 function triggerCreature(key){
-if(key==="mustang"){
+if(key==="sand"){
+
+    if(mustang)
+        mustang.visible=false;
+
+    points.visible=true;
+    glowPoints.visible=true;
+
+    resetToPileOnly();
+
+    return;
+}
+  if(key==="mustang"){
 
     if(mustang){
 
@@ -659,9 +671,11 @@ const hand = {
   left:  { open:false, confirmed:'closed', openFrames:0, closedFrames:0, present:false },
   right: { open:false, confirmed:'closed', openFrames:0, closedFrames:0, present:false }
 };
-let cubeVisible = false;
-let creatureIndex = -1;
 
+let creatureIndex = 0;
+  idleFormed = true;
+creatureNameEl.textContent = "SAND";
+triggerCreature("sand");
 function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
 function fingerExtended(lm, tipIdx, pipIdx){
   const wrist = lm[0];
@@ -701,46 +715,21 @@ function updateHandState(key, lm){
 }
 
 function onHandOpened(key, wasClosed){
-  if(key === 'left'){
-    cubeVisible = true;
-    rig.visible = true;
-    if(creatureIndex === -1){
-      // first time: settle straight into a sand pile
-      idleFormed = true;
-    }
-  } else if(key === 'right'){
-    if(cubeVisible && wasClosed){
-      creatureIndex = (creatureIndex + 1) % CREATURE_KEYS.length;
-      const k = CREATURE_KEYS[creatureIndex];
-      creatureNameEl.textContent = CREATURE_LABELS[k];
-      triggerCreature(k);
-    }
-  }
+ if(!wasClosed) return;
+
+    creatureIndex++;
+
+    if(creatureIndex >= CREATURE_KEYS.length)
+        creatureIndex = 0;
+
+    const keyName = CREATURE_KEYS[creatureIndex];
+
+    creatureNameEl.textContent = CREATURE_LABELS[keyName];
+
+    triggerCreature(keyName);
 }
 function onHandClosed(key){
-  if(key === 'left'){
-    cubeVisible = false;
-if(mustang)
-    mustang.visible=false;
-
-points.visible=true;
-glowPoints.visible=true;
-    rig.visible = false;
-    creatureIndex = -1;
-    creatureNameEl.textContent='— no cube yet —';
-    resetToPileOnly();
-    return;
-  }
-
-  if(key === 'right'){
-if(mustang)
-    mustang.visible=false;
-
-points.visible=true;
-glowPoints.visible=true;
-    creatureNameEl.textContent='SAND';
-    resetToPileOnly();
-  }
+ 
 }
 
 function resetHandIfMissing(key){
@@ -800,8 +789,7 @@ function onResults(results){
   dotRight.className = 'dot ' + (hand.right.confirmed==='open' ? 'on':'off');
   leftStateEl.textContent = hand.left.confirmed;
   rightStateEl.textContent = hand.right.confirmed;
-  if(!cubeVisible) creatureNameEl.textContent = '— no cube yet —';
-}
+  }
 
 /* ------------------------------- bootstrap -------------------------------- */
 async function start(){
