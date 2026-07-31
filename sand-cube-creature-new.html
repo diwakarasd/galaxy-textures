@@ -67,15 +67,13 @@
   <h1>Sand <span>Cube</span> Creatures</h1>
   <div class="row"><span><span class="dot off" id="dotLeft"></span>Left fist</span><b id="leftState">closed</b></div>
   <div class="row"><span><span class="dot off" id="dotRight"></span>Right fist</span><b id="rightState">closed</b></div>
-  <div class="row"><span><span class="dot off" id="dotModel"></span>Car model</span><b id="modelState">loading…</b></div>
+  <div class="row"><span><span class="dot off" id="dotModel"></span>Sculptures</span><b id="modelState">0/5</b></div>
   <div id="creatureName">— no cube yet —</div>
   <div id="steps">
     <b>1.</b> Open your <b>left</b> fist → wireframe cube appears.<br>
-    <b>2.</b> Open your <b>right</b> fist → sand rises into a <b>1965 Mustang</b> wireframe.<br>
-    <b>3.</b> Close &amp; open right fist again → <b>dragon</b>.<br>
-    <b>4.</b> Close &amp; open right fist again → <b>zombie</b>.<br>
-    <b>5.</b> Close &amp; open right fist again → <b>mammoth</b> (then loops).<br>
-    <b>6.</b> Close left fist to dismiss the cube.
+    <b>2.</b> Open your <b>right</b> fist → sand rises into the first sculpture.<br>
+    <b>3.</b> Close &amp; open right fist again to cycle: <b>Ferrari → Albert Wesker → Astro Cannon → Bumblebee → Psylocke</b> (then loops).<br>
+    <b>4.</b> Close left fist to dismiss the cube.
   </div>
   <button id="swapBtn">⇄ Swap detected Left/Right</button>
 </div>
@@ -102,13 +100,13 @@
 /*
 ===========================================================================
 NOTE:
-The Mustang starts loading the instant the page loads (not on gesture),
-so there is no fetch/parse delay when the user first opens their right
-fist. Once loaded, the model is never rendered as a solid mesh — instead
-its wireframe (feature edges only, like the GLB's own EdgesGeometry) is
-sampled into thousands of points, which the sand particle system uses as
-a target shape. That way the Mustang rises from the sand pile and forms
-as a wireframe sand sculpture, exactly like the dragon/zombie/mammoth.
+All sculptures are GLB models, loaded immediately at page load (not on
+gesture) so there's no fetch/parse delay the first time a gesture is
+made. None of the GLBs are ever rendered as solid meshes — only their
+wireframe (feature edges, same technique as the cube outline) is sampled
+into thousands of points, which the sand particle system uses as a
+target shape. Each one rises from the sand pile and forms as a wireframe
+sand sculpture, then cycles to the next on repeated right-fist gestures.
 ===========================================================================
 */
 
@@ -116,7 +114,7 @@ as a wireframe sand sculpture, exactly like the dragon/zombie/mammoth.
    SAND CUBE CREATURES
    Hand-gesture controlled Three.js particle sculptures inside a wireframe
    cube. Left fist open -> show cube. Right fist open (transition from
-   closed) -> cycle mustang -> dragon -> zombie -> mammoth -> mustang ...
+   closed) -> cycle through the GLB_MODELS list below, in order, looping.
    ========================================================================= */
 
 /* ----------------------------- CONFIG ---------------------------------- */
@@ -124,9 +122,17 @@ const PARTICLE_COUNT   = 50000;
 const CUBE_HALF        = 1.3;
 const PILE_DURATION_MS = 550;
 const FORM_DURATION_MS = 1000;
-const CREATURE_KEYS    = ['mustang','dragon', 'zombie', 'mammoth'];
+const MODEL_FIT_SIZE   = 2.5; // longest model dimension is scaled to this size (larger = fills more of the cube)
 
-const CREATURE_LABELS  = { mustang:'FORD MUSTANG GT3', dragon: 'DRAGON', zombie: 'ZOMBIE', mammoth: 'MAMMOTH' };
+const GLB_MODELS = [
+  { key:'ferrari',            file:'ferrari.glb',            label:'FERRARI' },
+  { key:'albert_wesker',      file:'albert_wesker.glb',      label:'ALBERT WESKER' },
+  { key:'astro_cannon',       file:'astro_cannon.glb',       label:'ASTRO CANNON' },
+  { key:'bumblebee',          file:'bumblebee.glb',          label:'BUMBLEBEE' },
+  { key:'psylocke_butterfly', file:'psylocke_butterfly.glb', label:'PSYLOCKE' },
+];
+const CREATURE_KEYS   = GLB_MODELS.map(m => m.key);
+const CREATURE_LABELS = Object.fromEntries(GLB_MODELS.map(m => [m.key, m.label]));
 
 /* --------------------------- SMALL HELPERS ------------------------------ */
 function rand(){ return Math.random(); }
@@ -172,19 +178,17 @@ function buildPile(count){
   return weightedBuild(count, parts);
 }
 
-/* =============================== MUSTANG ================================
-   Built from the loaded GLB's wireframe (feature edges only). Rather than
-   rendering the solid mesh, we sample random points uniformly along the
-   model's edge segments (weighted by edge length so long edges get
-   proportionally more sand grains), giving a clean wireframe sand
-   sculpture instead of a filled-in car.
+/* ========================== WIREFRAME GLB MODELS =========================
+   Generic system shared by every GLB in GLB_MODELS. Rather than rendering
+   the solid mesh, we sample random points uniformly along each model's
+   edge segments (weighted by edge length so long edges get proportionally
+   more sand grains), giving a clean wireframe sand sculpture instead of a
+   filled-in shape.
    ========================================================================= */
-let mustangReady = false;
-let mustangLoadFailed = false;
-let mustangEdgeStarts = null; // Float32Array: [x,y,z, x,y,z, ...] segment start points
-let mustangEdgeEnds   = null; // Float32Array: matching segment end points
-let mustangEdgeCum    = null; // Float64Array: cumulative edge length, for weighted sampling
-let mustangTotalLength = 0;
+let modelsData = {}; // key -> {ready, failed, edgeStarts, edgeEnds, edgeCum, totalLength}
+GLB_MODELS.forEach(m => {
+  modelsData[m.key] = { ready:false, failed:false, edgeStarts:null, edgeEnds:null, edgeCum:null, totalLength:0 };
+});
 
 function binarySearchCum(cum, r){
   let lo = 0, hi = cum.length - 1;
@@ -195,9 +199,9 @@ function binarySearchCum(cum, r){
   return lo;
 }
 
-// Extracts the model's wireframe edges (in its own local/root space, after
+// Extracts a model's wireframe edges (in its own local/root space, after
 // centering + scaling) into flat arrays we can sample from every frame.
-function extractMustangEdges(root){
+function extractModelEdges(key, root){
   const starts = [];
   const ends = [];
   root.updateMatrixWorld(true);
@@ -216,296 +220,55 @@ function extractMustangEdges(root){
     edgesGeom.dispose();
   });
 
-  mustangEdgeStarts = new Float32Array(starts);
-  mustangEdgeEnds   = new Float32Array(ends);
-  const segCount = mustangEdgeStarts.length / 3;
-  mustangEdgeCum = new Float64Array(Math.max(segCount,1));
+  const data = modelsData[key];
+  data.edgeStarts = new Float32Array(starts);
+  data.edgeEnds   = new Float32Array(ends);
+  const segCount = data.edgeStarts.length / 3;
+  data.edgeCum = new Float64Array(Math.max(segCount,1));
   let acc = 0;
   for(let i=0;i<segCount;i++){
     const i3 = i*3;
-    const dx = mustangEdgeEnds[i3]   - mustangEdgeStarts[i3];
-    const dy = mustangEdgeEnds[i3+1] - mustangEdgeStarts[i3+1];
-    const dz = mustangEdgeEnds[i3+2] - mustangEdgeStarts[i3+2];
+    const dx = data.edgeEnds[i3]   - data.edgeStarts[i3];
+    const dy = data.edgeEnds[i3+1] - data.edgeStarts[i3+1];
+    const dz = data.edgeEnds[i3+2] - data.edgeStarts[i3+2];
     acc += Math.hypot(dx,dy,dz) + 0.0005; // tiny epsilon avoids zero-length segments stalling sampling
-    mustangEdgeCum[i] = acc;
+    data.edgeCum[i] = acc;
   }
-  mustangTotalLength = acc;
-  mustangReady = segCount > 0;
+  data.totalLength = acc;
+  data.ready = segCount > 0;
 }
 
-function mustangEdgePoint(){
-  const r = rand() * mustangTotalLength;
-  const idx = binarySearchCum(mustangEdgeCum, r);
+function modelEdgePoint(key){
+  const data = modelsData[key];
+  const r = rand() * data.totalLength;
+  const idx = binarySearchCum(data.edgeCum, r);
   const i3 = idx*3;
   const t = rand();
-  const x = lerp(mustangEdgeStarts[i3],   mustangEdgeEnds[i3],   t);
-  const y = lerp(mustangEdgeStarts[i3+1], mustangEdgeEnds[i3+1], t);
-  const z = lerp(mustangEdgeStarts[i3+2], mustangEdgeEnds[i3+2], t);
+  const x = lerp(data.edgeStarts[i3],   data.edgeEnds[i3],   t);
+  const y = lerp(data.edgeStarts[i3+1], data.edgeEnds[i3+1], t);
+  const z = lerp(data.edgeStarts[i3+2], data.edgeEnds[i3+2], t);
   const jitter = 0.010; // small grain-thickness scatter around the edge line
   const jx = (rand()-0.5)*jitter, jy = (rand()-0.5)*jitter, jz = (rand()-0.5)*jitter;
   const shade = 0.72 + rand()*0.28;
-  const col = [0.80*shade, 0.63*shade, 0.32*shade]; // sandy gold, consistent with the pile/other creatures
+  const col = [0.80*shade, 0.63*shade, 0.32*shade]; // sandy gold, consistent with the idle pile
   return [x+jx, y+jy, z+jz, col];
 }
 
-function buildMustang(count){
-  if(!mustangReady) return buildPile(count); // model still loading/failed -> stay as sand
+function buildModelShape(key, count){
+  const data = modelsData[key];
+  if(!data || !data.ready) return buildPile(count); // still loading / failed -> stay as sand
   const positions = new Float32Array(count*3);
   const colors    = new Float32Array(count*3);
   for(let i=0;i<count;i++){
-    const [x,y,z,col] = mustangEdgePoint();
+    const [x,y,z,col] = modelEdgePoint(key);
     setPoint(positions,i,x,y,z);
     setColor(colors,i,col[0],col[1],col[2]);
   }
   return { positions, colors };
 }
 
-/* ================================ DRAGON ================================ */
-function dragonSpineCurve(t){
-  const x = -1.15 + t*2.30;
-  const y = Math.sin(t*Math.PI*2.3)*0.26*(0.35+0.65*(1-t)) + 0.05;
-  const z = Math.cos(t*Math.PI*1.3+0.6)*0.20*(1-t*0.5);
-  return [x,y,z];
-}
-function dragonSpineRadius(t){
-  let r = 0.05 + 0.24*Math.sin(Math.min(1,t*1.1)*Math.PI);
-  if(t < 0.18) r += 0.05*(1 - t/0.18);
-  return Math.max(r,0.02) * (1 - t*0.1);
-}
-function dragonSpine(){
-  const t = 0.03 + rand()*0.85;
-  const [cx,cy,cz] = dragonSpineCurve(t);
-  const r = dragonSpineRadius(t);
-  const ang = rand()*Math.PI*2;
-  const rad = r*Math.sqrt(rand());
-  let oy = Math.sin(ang)*rad, oz = Math.cos(ang)*rad*0.85;
-  const dorsal = Math.sin(ang) > 0.75;
-  if(dorsal) oy *= 1.35;
-  const shade = 0.55 + 0.35*(oy/(r+0.001));
-  const base = dorsal ? [0.42,0.30,0.16] : [0.72,0.55,0.30];
-  const col = [base[0]*shade+rand()*0.06, base[1]*shade+rand()*0.05, base[2]*shade+rand()*0.04];
-  return [cx, cy+oy, cz+oz, col];
-}
-function dragonWing(side){
-  const [sx,sy,sz] = dragonSpineCurve(0.30);
-  const spread = rand()*Math.PI*0.85 - Math.PI*0.1;
-  const reach = Math.pow(rand(),0.6)*0.85;
-  const x = sx - 0.15 - reach*0.55*Math.sin(spread)*0.4;
-  const y = sy + 0.05 + reach*Math.cos(spread)*0.6 - 0.05;
-  const z = sz + side*(0.12 + reach*Math.sin(spread)*0.95 + 0.1);
-  const ribPhase = Math.sin(spread*5 + reach*10);
-  const nearRib = Math.abs(ribPhase) > 0.85;
-  const shade = nearRib ? 0.55 : 0.85;
-  const col = [0.68*shade, 0.5*shade, 0.30*shade + (nearRib?0:0.05)];
-  return [x,y,z,col];
-}
-function dragonSpikes(){
-  const t = 0.05 + rand()*0.8;
-  const [cx,cy,cz] = dragonSpineCurve(t);
-  const r = dragonSpineRadius(t);
-  const h = 0.03 + rand()*0.16*(1-t*0.4);
-  const x = cx + (rand()-0.5)*0.02;
-  const y = cy + r*1.05 + h;
-  const z = cz + (rand()-0.5)*0.02;
-  return [x,y,z,[0.22+rand()*0.05,0.16+rand()*0.04,0.10]];
-}
-function dragonHead(){
-  const [hx,hy,hz] = dragonSpineCurve(0.015);
-  const mode = rand();
-  if(mode < 0.55){
-    const ang = rand()*Math.PI*2, el = rand()*Math.PI;
-    const rr = Math.pow(rand(),0.5);
-    const x = hx - 0.10 - rr*0.16*Math.abs(Math.cos(el));
-    const y = hy + rr*0.13*Math.sin(el)*Math.cos(ang);
-    const z = hz + rr*0.13*Math.sin(el)*Math.sin(ang);
-    return [x,y,z,[0.75,0.58,0.32]];
-  } else if(mode < 0.8){
-    const tt = rand();
-    const x = hx - 0.20 - tt*0.05;
-    const y = hy - 0.05 - tt*0.02 + (rand()-0.5)*0.01;
-    const z = hz + (rand()-0.5)*0.10;
-    return [x,y,z,[0.85,0.82,0.72]];
-  } else {
-    const side = rand()<0.5 ? 1 : -1;
-    const tt = rand();
-    const x = hx + 0.02 - tt*0.10;
-    const y = hy + 0.10 + tt*0.22;
-    const z = hz + side*0.06*(1+tt);
-    return [x,y,z,[0.30,0.20,0.12]];
-  }
-}
-function dragonLegs(){
-  const front = rand() < 0.5;
-  const side = rand() < 0.5 ? 1 : -1;
-  const t = front ? 0.25 : 0.62;
-  const [cx,cy,cz] = dragonSpineCurve(t);
-  const r = dragonSpineRadius(t);
-  const drop = rand();
-  const x = cx + (rand()-0.5)*0.04;
-  const y = cy - r*0.6 - drop*0.55;
-  const z = cz + side*(r*0.7 + 0.03);
-  if(drop > 0.9) return [x+(rand()-0.5)*0.05, y-0.02, z, [0.15,0.12,0.10]];
-  return [x,y,z,[0.60,0.45,0.26]];
-}
-function dragonTailSpikes(){
-  const t = 0.85 + rand()*0.15;
-  const [cx,cy,cz] = dragonSpineCurve(t);
-  const r = dragonSpineRadius(t);
-  const h = 0.02 + rand()*0.10;
-  return [cx+(rand()-0.5)*0.01, cy+r+h, cz, [0.20,0.15,0.09]];
-}
-function buildDragon(count){
-  return weightedBuild(count, [
-    {w:0.40, fn:dragonSpine},
-    {w:0.13, fn:()=>dragonWing(1)},
-    {w:0.13, fn:()=>dragonWing(-1)},
-    {w:0.09, fn:dragonSpikes},
-    {w:0.10, fn:dragonHead},
-    {w:0.10, fn:dragonLegs},
-    {w:0.05, fn:dragonTailSpikes},
-  ]);
-}
-
-/* ================================ ZOMBIE ================================ */
-function zombieTorso(){
-  const t = rand();
-  const hipY = -0.35, shoulderY = 0.55;
-  const y = hipY + t*(shoulderY-hipY);
-  const lean = 0.18*t*t;
-  const rBase = 0.30*(1-0.25*t);
-  const ang = rand()*Math.PI*2;
-  const rad = rBase*Math.sqrt(rand());
-  const x = lean + Math.cos(ang)*rad*0.6;
-  const z = Math.sin(ang)*rad*0.8;
-  const tattered = rand() < 0.08;
-  const col = tattered
-    ? [0.28+rand()*0.05, 0.24+rand()*0.05, 0.20]
-    : [0.30+rand()*0.05, 0.35+rand()*0.06, 0.24+rand()*0.04];
-  return [x,y,z,col];
-}
-function zombieHead(){
-  const ang = rand()*Math.PI*2, el = rand()*Math.PI;
-  const r = 0.17;
-  const cx = 0.22, cy = 0.78, cz = 0;
-  const x = cx + r*Math.sin(el)*Math.cos(ang)*0.9;
-  const y = cy + r*Math.cos(el)*0.9 - 0.02;
-  const z = cz + r*Math.sin(el)*Math.sin(ang)*0.9;
-  const wound = rand() < 0.06;
-  return [x,y,z, wound ? [0.35,0.10,0.08] : [0.42,0.46,0.30]];
-}
-function zombieArm(side){
-  const t = rand();
-  const shoulder = [0.15, 0.55, side*0.30];
-  const reach = [0.75, 0.20, side*0.40];
-  const x = shoulder[0]+(reach[0]-shoulder[0])*t + (rand()-0.5)*0.03;
-  const y = shoulder[1]+(reach[1]-shoulder[1])*t + (rand()-0.5)*0.03 - t*0.05*Math.sin(t*Math.PI);
-  const z = shoulder[2]+(reach[2]-shoulder[2])*t + (rand()-0.5)*0.03;
-  if(t > 0.93) return [x+(rand()-0.5)*0.05, y, z+(rand()-0.5)*0.05, [0.30,0.28,0.20]];
-  return [x,y,z,[0.32,0.37,0.25]];
-}
-function zombieLeg(side){
-  const t = rand();
-  const hip = [-0.05, -0.35, side*0.14];
-  const foot = [0.02, -1.15, side*0.16 + (rand()-0.5)*0.02];
-  const x = hip[0]+(foot[0]-hip[0])*t + (rand()-0.5)*0.03;
-  const y = hip[1]+(foot[1]-hip[1])*t;
-  const z = hip[2]+(foot[2]-hip[2])*t + (rand()-0.5)*0.03;
-  return [x,y,z,[0.28,0.30,0.22]];
-}
-function buildZombie(count){
-  return weightedBuild(count, [
-    {w:0.30, fn:zombieTorso},
-    {w:0.12, fn:zombieHead},
-    {w:0.11, fn:()=>zombieArm(1)},
-    {w:0.11, fn:()=>zombieArm(-1)},
-    {w:0.18, fn:()=>zombieLeg(1)},
-    {w:0.18, fn:()=>zombieLeg(-1)},
-  ]);
-}
-
-/* =============================== MAMMOTH ================================ */
-function mammothBody(){
-  const ang = rand()*Math.PI*2, el = rand()*Math.PI;
-  const rx = 0.85, ry = 0.42, rz = 0.5;
-  const u = Math.sin(el);
-  const x = Math.cos(el)*rx*0.95;
-  const y = -0.05 + u*Math.cos(ang)*ry*0.95;
-  const z = u*Math.sin(ang)*rz*0.95;
-  const fur = rand() < 0.25 ? rand()*0.05 : 0;
-  const topSide = y > (ry*0.5) ? 1 : 0;
-  const shade = 0.6 + 0.3*topSide;
-  const col = [0.42*shade+fur, 0.30*shade+fur*0.7, 0.18*shade+fur*0.4];
-  return [x, y+fur*0.5, z, col];
-}
-function mammothLeg(cornerX,cornerZ){
-  const t = rand();
-  const topY = -0.35, botY = -1.15;
-  const y = topY + (botY-topY)*t;
-  const rad = 0.16*(1-0.15*t);
-  const ang = rand()*Math.PI*2, rr = rad*Math.sqrt(rand());
-  const x = cornerX + Math.cos(ang)*rr;
-  const z = cornerZ + Math.sin(ang)*rr;
-  return [x,y,z,[0.34,0.24,0.14]];
-}
-function mammothHead(){
-  const ang = rand()*Math.PI*2, el = rand()*Math.PI;
-  const cx = -0.95, cy = 0.15, cz = 0;
-  const r = 0.32;
-  const x = cx - Math.abs(Math.cos(el))*r*0.7;
-  const y = cy + Math.sin(el)*Math.cos(ang)*r*0.85;
-  const z = cz + Math.sin(el)*Math.sin(ang)*r*0.85;
-  return [x,y,z,[0.40,0.29,0.17]];
-}
-function mammothTrunk(){
-  const t = rand();
-  const startX = -1.20, startY = 0.0;
-  const curl = t*t;
-  const x = startX - 0.25*t;
-  const y = startY - 0.55*t + 0.25*curl;
-  const z = Math.sin(t*Math.PI*1.5)*0.06;
-  const r = 0.09*(1-0.4*t);
-  const ang = rand()*Math.PI*2, rad = r*Math.sqrt(rand());
-  return [x+Math.cos(ang)*rad, y+Math.sin(ang)*rad, z+Math.cos(ang)*rad*0.6, [0.38,0.27,0.16]];
-}
-function mammothTusk(side){
-  const t = rand();
-  const startX = -1.15, startY = -0.15;
-  const x = startX - 0.05 - t*0.35;
-  const y = startY - 0.05 + t*0.45*t;
-  const z = side*(0.12 + t*0.28);
-  const r = 0.035*(1-0.5*t);
-  const ang = rand()*Math.PI*2, rad = r*Math.sqrt(rand());
-  return [x+Math.cos(ang)*rad, y+Math.sin(ang)*rad*0.5, z+Math.sin(ang)*rad, [0.90,0.87,0.78]];
-}
-function mammothEar(side){
-  const ang = rand()*Math.PI, rr = rand();
-  const cx = -0.78, cy = 0.25, cz = side*0.32;
-  const x = cx - 0.05*rr;
-  const y = cy + Math.sin(ang)*0.18*rr;
-  const z = cz + side*Math.cos(ang)*0.12*rr;
-  return [x,y,z,[0.36,0.22,0.14]];
-}
-function buildMammoth(count){
-  return weightedBuild(count, [
-    {w:0.40, fn:mammothBody},
-    {w:0.08, fn:()=>mammothLeg(-0.55,-0.35)},
-    {w:0.08, fn:()=>mammothLeg(-0.55, 0.35)},
-    {w:0.08, fn:()=>mammothLeg( 0.55,-0.35)},
-    {w:0.08, fn:()=>mammothLeg( 0.55, 0.35)},
-    {w:0.09, fn:mammothHead},
-    {w:0.09, fn:mammothTrunk},
-    {w:0.04, fn:()=>mammothTusk(1)},
-    {w:0.04, fn:()=>mammothTusk(-1)},
-    {w:0.01, fn:()=>mammothEar(1)},
-    {w:0.01, fn:()=>mammothEar(-1)},
-  ]);
-}
-
 function buildCreature(key, count){
-  if(key==='mustang') return buildMustang(count);
-  if(key==='dragon')  return buildDragon(count);
-  if(key==='zombie')  return buildZombie(count);
-  if(key==='mammoth') return buildMammoth(count);
+  if(modelsData[key]) return buildModelShape(key, count);
   return buildPile(count);
 }
 
@@ -539,8 +302,8 @@ cubeGlow.scale.setScalar(1.03);
 rig.add(cubeLines);
 rig.add(cubeGlow);
 
-// Particles (main + soft glow duplicate) — every creature, including the
-// Mustang, is rendered purely through this particle system.
+// Particles (main + soft glow duplicate) — every sculpture, including all
+// five GLB models, is rendered purely through this particle system.
 const geometry = new THREE.BufferGeometry();
 const glowGeometry = new THREE.BufferGeometry();
 const pile = buildPile(PARTICLE_COUNT);
@@ -557,38 +320,42 @@ rig.add(glowPoints);
 rig.add(points);
 
 //------------------------------------------------
-// Mustang — the fetch/parse is kicked off immediately here at page load
-// (not on gesture), so it has the whole "requesting camera" window to
-// finish before anyone can trigger it. It is never added to the scene as
-// a mesh; only its wireframe edges are extracted for the particle system
-// above (see extractMustangEdges / buildMustang).
+// GLB loading — every model's fetch/parse is kicked off immediately here
+// at page load (not on gesture), so each one has the whole "requesting
+// camera" window to finish before anyone can trigger it. None of them are
+// ever added to the scene as a mesh; only their wireframe edges are
+// extracted for the particle system above (see extractModelEdges /
+// buildModelShape).
 //------------------------------------------------
 const loader = new THREE.GLTFLoader();
-loader.load(
-  "https://raw.githubusercontent.com/diwakarasd/galaxy-textures/main/1965_ford_mustang_coupe_289.glb",
-  function(gltf){
-    const root = gltf.scene;
-    const box = new THREE.Box3().setFromObject(root);
-    const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
-    root.position.sub(center);
-    const maxDim = Math.max(size.x, size.y, size.z);
-    const scale = 2 / maxDim;
-    root.scale.setScalar(scale);
-    root.rotation.set(0,0,0);
-    extractMustangEdges(root);
-    if(dotModel) dotModel.className = 'dot on';
-    if(modelStateEl) modelStateEl.textContent = 'ready';
-    updateLoadingScreen();
-  },
-  undefined,
-  function(err){
-    console.warn('Mustang model failed to load — that slot will fall back to a sand pile.', err);
-    mustangLoadFailed = true;
-    if(modelStateEl) modelStateEl.textContent = 'unavailable';
-    updateLoadingScreen();
-  }
-);
+let modelsSettledCount = 0;
+
+GLB_MODELS.forEach(m => {
+  loader.load(
+    `https://raw.githubusercontent.com/diwakarasd/galaxy-textures/main/${m.file}`,
+    function(gltf){
+      const root = gltf.scene;
+      const box = new THREE.Box3().setFromObject(root);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      root.position.sub(center);
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale = MODEL_FIT_SIZE / maxDim;
+      root.scale.setScalar(scale);
+      root.rotation.set(0,0,0);
+      extractModelEdges(m.key, root);
+      modelsSettledCount++;
+      updateModelStatus();
+    },
+    undefined,
+    function(err){
+      console.warn(`${m.key} model failed to load — that slot will fall back to a sand pile.`, err);
+      modelsData[m.key].failed = true;
+      modelsSettledCount++;
+      updateModelStatus();
+    }
+  );
+});
 
 /* ------------------------- animation / morph state ----------------------- */
 let basePositions = pile.positions.slice();
@@ -720,19 +487,27 @@ const swapBtn = document.getElementById('swapBtn');
 
 let cameraReady = false;
 
-// Keeps the loading overlay up until BOTH the camera is streaming AND the
-// Mustang wireframe data is ready (or failed), so the very first gesture
-// never has to wait on a still-loading model.
+// Reflects how many of the 5 GLBs have settled (loaded or failed).
+function updateModelStatus(){
+  const total = GLB_MODELS.length;
+  if(modelStateEl) modelStateEl.textContent = `${modelsSettledCount}/${total}`;
+  if(dotModel) dotModel.className = 'dot ' + (modelsSettledCount >= total ? 'on' : 'off');
+  updateLoadingScreen();
+}
+
+// Keeps the loading overlay up until BOTH the camera is streaming AND every
+// GLB has settled (ready or failed), so the very first gesture never has to
+// wait on a still-loading model.
 function updateLoadingScreen(){
   if(loadingEl.style.display === 'none') return;
   if(!cameraReady){
     loadingTextEl.textContent = 'Requesting camera access…';
     return;
   }
-  if(mustangReady || mustangLoadFailed){
+  if(modelsSettledCount >= GLB_MODELS.length){
     loadingEl.style.display = 'none';
   } else {
-    loadingTextEl.textContent = 'Loading car model…';
+    loadingTextEl.textContent = `Loading sculptures… (${modelsSettledCount}/${GLB_MODELS.length})`;
   }
 }
 
