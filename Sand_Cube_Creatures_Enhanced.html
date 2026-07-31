@@ -124,9 +124,9 @@ const PARTICLE_COUNT   = 50000;
 const CUBE_HALF        = 1.3;
 const PILE_DURATION_MS = 550;
 const FORM_DURATION_MS = 1000;
-const CREATURE_KEYS    = ['sand','mustang','dragon', 'zombie', 'mammoth'];
+const CREATURE_KEYS    = ['mustang','dragon', 'zombie', 'mammoth'];
 
-const CREATURE_LABELS  = { sand:'SAND',mustang:'FORD MUSTANG GT3', dragon: 'DRAGON', zombie: 'ZOMBIE', mammoth: 'MAMMOTH' };
+const CREATURE_LABELS  = { mustang:'FORD MUSTANG GT3', dragon: 'DRAGON', zombie: 'ZOMBIE', mammoth: 'MAMMOTH' };
 
 /* --------------------------- SMALL HELPERS ------------------------------ */
 function rand(){ return Math.random(); }
@@ -672,7 +672,7 @@ const hand = {
   right: { open:false, confirmed:'closed', openFrames:0, closedFrames:0, present:false }
 };
 
-let creatureIndex = 0;
+let creatureIndex = -1;
   idleFormed = true;
 creatureNameEl.textContent = "SAND";
 triggerCreature("sand");
@@ -729,7 +729,15 @@ function onHandOpened(key, wasClosed){
     triggerCreature(keyName);
 }
 function onHandClosed(key){
- 
+   if(mustang)
+        mustang.visible = false;
+
+    points.visible = true;
+    glowPoints.visible = true;
+
+    creatureNameEl.textContent = "SAND";
+
+    triggerCreature("sand");
 }
 
 function resetHandIfMissing(key){
