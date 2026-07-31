@@ -429,6 +429,12 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
 camera.position.set(0,0.3,5.2);
+  const ambient = new THREE.AmbientLight(0xffffff, 2);
+scene.add(ambient);
+
+const dir = new THREE.DirectionalLight(0xffffff, 3);
+dir.position.set(5,10,5);
+scene.add(dir);
 
 const rig = new THREE.Group(); // holds cube + particles, auto-rotates
 scene.add(rig);
@@ -468,32 +474,37 @@ let mustang = null;
 
 const loader = new THREE.GLTFLoader();
 
-loader.load(
-    "https://raw.githubusercontent.com/diwakarasd/galaxy-textures/main/1965_ford_mustang_coupe_289.glb",
+function(gltf){
 
-    function(gltf){
+    console.log("Model loaded!");
 
-        console.log("Model loaded!", gltf);
+    mustang = gltf.scene;
 
-        mustang = gltf.scene;
+    const box = new THREE.Box3().setFromObject(mustang);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
 
-        console.log("Size before scaling:",
-            new THREE.Box3().setFromObject(mustang).getSize(new THREE.Vector3()));
+    console.log("Size:", size.x, size.y, size.z);
 
-        rig.add(mustang);
+    mustang.position.sub(center);
 
-        mustang.visible = true;
-    },
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const scale = 2 / maxDim;
 
-    function(xhr){
-        console.log((xhr.loaded/xhr.total*100)+"%");
-    },
+    mustang.scale.setScalar(scale);
 
-    function(err){
-        console.error(err);
-    }
-);
+    mustang.rotation.set(0,0,0);
 
+    mustang.traverse(function(obj){
+        if(obj.isMesh){
+            obj.material.side = THREE.DoubleSide;
+        }
+    });
+
+    mustang.visible = false;
+
+    rig.add(mustang);
+}
 rig.visible = false; // hidden until left fist opens
 
 /* ------------------------- animation / morph state ----------------------- */
