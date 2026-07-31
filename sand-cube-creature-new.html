@@ -131,6 +131,34 @@ const GLB_MODELS = [
   { key:'bumblebee',          file:'bumblebee.glb',          label:'BUMBLEBEE' },
   { key:'psylocke_butterfly', file:'psylocke_butterfly.glb', label:'PSYLOCKE' },
 ];
+const MODEL_TRANSFORMS = {
+
+  ferrari: {
+    rotation: [0, Math.PI/2, 0],
+    offset: [0,0,0]
+  },
+
+  albert_wesker: {
+    rotation: [0,0,0],
+    offset: [0,0,0]
+  },
+
+  astro_cannon: {
+    rotation: [0,0,0],
+    offset: [0,0,0]
+  },
+
+  bumblebee: {
+    rotation: [0,0,0],
+    offset: [0,0,0]
+  },
+
+  psylocke_butterfly: {
+    rotation: [-Math.PI/2,0,0],
+    offset: [0,0,0]
+  }
+
+};
 const CREATURE_KEYS   = GLB_MODELS.map(m => m.key);
 const CREATURE_LABELS = Object.fromEntries(GLB_MODELS.map(m => [m.key, m.label]));
 
@@ -342,8 +370,25 @@ GLB_MODELS.forEach(m => {
       const maxDim = Math.max(size.x, size.y, size.z);
       const scale = MODEL_FIT_SIZE / maxDim;
       root.scale.setScalar(scale);
-      root.rotation.set(0,0,0);
-      extractModelEdges(m.key, root);
+
+const transform = MODEL_TRANSFORMS[m.key];
+
+if(transform){
+
+    root.rotation.set(
+        transform.rotation[0],
+        transform.rotation[1],
+        transform.rotation[2]
+    );
+
+    root.position.x += transform.offset[0];
+    root.position.y += transform.offset[1];
+    root.position.z += transform.offset[2];
+
+}
+
+extractModelEdges(m.key, root);
+      
       modelsSettledCount++;
       updateModelStatus();
     },
