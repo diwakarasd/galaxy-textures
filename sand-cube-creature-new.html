@@ -383,7 +383,7 @@ const t = MODEL_TRANSFORMS[m.key] || {
     offset: [0, 0, 0]
 };
 
-root.scale.setScalar(scale * t.scale);
+root.scale.setScalar(scale * (t.scale || 1));
 
 root.rotation.set(
     t.rotation[0],
