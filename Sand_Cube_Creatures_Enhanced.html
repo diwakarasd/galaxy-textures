@@ -473,6 +473,8 @@ rig.add(points);
 let mustang = null;
 
 const loader = new THREE.GLTFLoader();
+loader.load(
+    "https://raw.githubusercontent.com/diwakarasd/galaxy-textures/main/1965_ford_mustang_coupe_289.glb",
 
 function(gltf){
 
@@ -505,6 +507,7 @@ function(gltf){
 
     rig.add(mustang);
 }
+);
 rig.visible = false; // hidden until left fist opens
 
 /* ------------------------- animation / morph state ----------------------- */
