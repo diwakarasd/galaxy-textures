@@ -68,7 +68,7 @@
   <div id="creatureName">— no cube yet —</div>
   <div id="steps">
     
-     Close &amp; open right or left fist to cycle: <b>Dragon → Ferrari → Albert Wesker → Astro Cannon → Bumblebee → Psylocke</b> (then loops).<br>
+     Close &amp; open right or left fist to cycle: <b>Dragon → Car → Person → Cannon → Transformer → Anime</b> (then loops).<br>
   
   </div>
   
@@ -122,11 +122,11 @@ const MODEL_FIT_SIZE   = 2.5; // longest model dimension is scaled to this size 
 
 const GLB_MODELS = [
   { key:'dragon',            file:'dragon.glb',            label:'DRAGON' },
-  { key:'ferrari',            file:'ferrari.glb',            label:'FERRARI' },
-  { key:'albert_wesker',      file:'albert_wesker.glb',      label:'ALBERT WESKER' },
-  { key:'astro_cannon',       file:'astro_cannon.glb',       label:'ASTRO CANNON' },
-  { key:'bumblebee',          file:'bumblebee.glb',          label:'BUMBLEBEE' },
-  { key:'psylocke_butterfly', file:'psylocke_butterfly.glb', label:'PSYLOCKE' },
+  { key:'car',            file:'car.glb',            label:'CAR' },
+  { key:'person',      file:'person.glb',      label:'PERSON' },
+  { key:'cannon',       file:'cannon.glb',       label:'CANNON' },
+  { key:'transformer',          file:'transformer.glb',          label:'TRANSFORMER' },
+  { key:'anime', file:'anime.glb', label:'ANIME' },
 ];
 const MODEL_TRANSFORMS = {
 
@@ -136,27 +136,27 @@ const MODEL_TRANSFORMS = {
     offset: [0,-3,0]
   },
   
-  ferrari: {
+  car: {
     rotation: [-Math.PI/2, 0, 0],
     offset: [0,0,0]
   },
 
-  albert_wesker: {
+  person: {
     rotation: [0,0,0],
     offset: [0,0,0]
   },
 
-  astro_cannon: {
+  cannon: {
     rotation: [0,0,0],
     offset: [-7,5,-1]
   },
 
-  bumblebee: {
+  transformer: {
     rotation: [0,0,0],
     offset: [-1,3,0]
   },
 
-  psylocke_butterfly: {
+  anime: {
     rotation: [Math.PI/2,0,0],
     offset: [0,-1,-1]
   }
