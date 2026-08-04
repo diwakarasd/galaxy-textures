@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cosmic Journey — From a Point of Light to a Galaxy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --orange: #ff7a45;
+    --blue: #4fb3ff;
+    --ink: #eef2f8;
+    --dim: rgba(238,242,248,0.55);
+  }
+  *{ box-sizing: border-box; }
+  html, body{
+    margin:0; padding:0;
+    background:#000;
+    color: var(--ink);
+    font-family: 'Space Grotesk', sans-serif;
+    overflow-x: hidden;
+  }
+
+  canvas#scene{
+    position: fixed;
+    top:0; left:0;
+    width:100vw; height:100vh;
+    display:block;
+    z-index:0;
+    background:#000;
+  }
+
+  .light-aura{
+    position: fixed; inset:0;
+    z-index:1;
+    pointer-events:none;
+    mix-blend-mode: screen;
+    opacity: 0.85;
+    transition: background 0.6s ease;
+    will-change: background, opacity;
+  }
+
+  .vignette{
+    position: fixed; inset:0;
+    z-index:1;
+    pointer-events:none;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 30%, rgba(0,0,0,0.62) 100%);
+  }
+  .grain{
+    position: fixed; inset:0;
+    z-index:1;
+    pointer-events:none;
+    opacity:0.05;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .text-layer{
+    position: fixed;
+    inset:0;
+    z-index:2;
+    pointer-events:none;
+    display:flex;
+    align-items:center;
+    justify-content:flex-start;
+    padding: 0 8vw;
+  }
+  @media (max-width: 720px){
+    .text-layer{ justify-content:center; padding: 0 7vw; text-align:center; }
+  }
+
+  .section-text{
+    position:absolute;
+    max-width: 560px;
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.15s linear;
+    will-change: opacity, transform;
+  }
+
+  .eyebrow{
+    display:flex;
+    align-items:center;
+    gap: 14px;
+    font-size: 12px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--orange);
+    margin-bottom: 18px;
+    font-weight: 500;
+  }
+  .eyebrow::before{
+    content:"";
+    width: 34px; height:1px;
+    background: linear-gradient(90deg, var(--orange), var(--blue));
+    display:inline-block;
+  }
+
+  .section-text h2{
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: clamp(32px, 5vw, 58px);
+    line-height: 1.08;
+    margin: 0 0 20px 0;
+    background: linear-gradient(
+        180deg,
+        #ffffff 0%,
+        #f8fbff 55%,
+        #dbe9ff 100%
+    );
+
+    -webkit-background-clip:text;
+    background-clip:text;
+    -webkit-text-fill-color:transparent;
+
+    text-shadow:
+        0 0 10px rgba(0,0,0,.55),
+        0 0 30px rgba(0,0,0,.35);
+  }
+
+  .section-text p{
+    font-size: clamp(14px, 1.15vw, 17px);
+    line-height: 1.75;
+    color: var(--dim);
+    font-weight: 300;
+    max-width: 46ch;
+  }
+
+  .index-mark{
+    font-family:'Cormorant Garamond', serif;
+    font-size: 13px;
+    color: rgba(238,242,248,0.35);
+    letter-spacing: 0.15em;
+  }
+
+  .rail{
+    position: fixed;
+    right: 32px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index:3;
+    display:flex;
+    flex-direction:column;
+    gap: 16px;
+    pointer-events:none;
+  }
+  @media (max-width: 720px){ .rail{ right: 14px; } }
+  .rail .dot{
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: rgba(238,242,248,0.25);
+    transition: background 0.4s ease, transform 0.4s ease, box-shadow 0.4s ease;
+  }
+  .rail .dot.active{
+    background: linear-gradient(180deg, var(--orange), var(--blue));
+    transform: scale(1.6);
+    box-shadow: 0 0 10px rgba(255,122,69,0.6);
+  }
+
+  .intro-cue{
+    position: fixed;
+    left: 50%;
+    bottom: 42px;
+    transform: translateX(-50%);
+    z-index:3;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap: 10px;
+    font-size: 11px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: rgba(238,242,248,0.5);
+    transition: opacity 0.5s ease;
+    pointer-events:none;
+  }
+  .intro-cue .line{
+    width:1px; height: 34px;
+    background: linear-gradient(180deg, rgba(238,242,248,0.7), transparent);
+    animation: pulse-line 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse-line{
+    0%,100%{ opacity:0.3; }
+    50%{ opacity:1; }
+  }
+
+  .scroll-spacer{
+    position: relative;
+    z-index: -1;
+    height: 700vh;
+    width: 100%;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .section-text{ transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="scene"></canvas>
+<div class="light-aura" id="lightAura"></div>
+<div class="vignette"></div>
+<div class="grain"></div>
+
+<div class="text-layer" id="textLayer">
+  <div class="section-text" data-index="0">
+    <div class="eyebrow"><span class="index-mark">01 / 06</span></div>
+    <h2>A single point of light</h2>
+    <p>Before anything existed, there was one point of light — a seed of
+    energy holding the quiet promise of everything that would come after.</p>
+  </div>
+
+  <div class="section-text" data-index="1">
+    <div class="eyebrow"><span class="index-mark">02 / 06</span></div>
+    <h2>Born from energy</h2>
+    <p>The point ignites. Particles catch fire and scatter into motion,
+    vibrating outward into a ring — an early architecture pulsing with
+    raw, restless energy.</p>
+  </div>
+
+  <div class="section-text" data-index="2">
+    <div class="eyebrow"><span class="index-mark">03 / 06</span></div>
+    <h2>The blueprint of life</h2>
+    <p>Order emerges from the chaos. Two strands twist around one another,
+    linked by rung after rung — the code that quietly writes every
+    living thing.</p>
+  </div>
+
+  <div class="section-text" data-index="3">
+    <div class="eyebrow"><span class="index-mark">04 / 06</span></div>
+    <h2>The fabric of space-time</h2>
+    <p>The helix dissolves into a woven mesh — the very fabric of space
+    and time, rippling and dipping under the quiet pull of gravity as
+    we drift across it.</p>
+  </div>
+
+  <div class="section-text" data-index="4">
+    <div class="eyebrow"><span class="index-mark">05 / 06</span></div>
+    <h2>The event horizon</h2>
+    <p>Gravity wins. Matter spirals inward, compressing into a thin,
+    tilted disk around a point from which not even light can escape.</p>
+  </div>
+
+  <div class="section-text" data-index="5">
+    <div class="eyebrow"><span class="index-mark">06 / 06</span></div>
+    <h2>A galaxy is born</h2>
+    <p>From collapse comes creation. Millions of points align into
+    spiraling arms — a galaxy, tilted toward us, rotating slowly in the
+    dark, endless and alive.</p>
+  </div>
+</div>
+
+<div class="rail" id="rail">
+  <div class="dot" data-i="0"></div>
+  <div class="dot" data-i="1"></div>
+  <div class="dot" data-i="2"></div>
+  <div class="dot" data-i="3"></div>
+  <div class="dot" data-i="4"></div>
+  <div class="dot" data-i="5"></div>
+</div>
+
+<div class="intro-cue" id="introCue">
+  <span>Scroll to begin</span>
+  <div class="line"></div>
+</div>
+
+<div class="scroll-spacer"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------------------------------------------------------
+     SETUP
+  --------------------------------------------------------- */
+  const canvas = document.getElementById('scene');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+  renderer.setClearColor(0x000000, 1);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 4000);
+  camera.position.set(0, 0, 150);
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  /* ---------------------------------------------------------
+     PARTICLE SPRITE
+  --------------------------------------------------------- */
+  function makeSprite(){
+    const s = 128;
+    const c = document.createElement('canvas');
+    c.width = c.height = s;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(s/2, s/2, 0, s/2, s/2, s/2);
+    g.addColorStop(0,    'rgba(255,255,255,1)');
+    g.addColorStop(0.18, 'rgba(255,255,255,1)');
+    g.addColorStop(0.42, 'rgba(255,255,255,0.55)');
+    g.addColorStop(1,    'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, s, s);
+    return new THREE.CanvasTexture(c);
+  }
+  // wider, softer sprite used for the outer halo / bloom layer
+  function makeHaloSprite(){
+    const s = 128;
+    const c = document.createElement('canvas');
+    c.width = c.height = s;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(s/2, s/2, 0, s/2, s/2, s/2);
+    g.addColorStop(0,    'rgba(255,255,255,0.9)');
+    g.addColorStop(0.25, 'rgba(255,255,255,0.45)');
+    g.addColorStop(0.6,  'rgba(255,255,255,0.12)');
+    g.addColorStop(1,    'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, s, s);
+    return new THREE.CanvasTexture(c);
+  }
+  const sprite = makeSprite();
+  const haloSprite = makeHaloSprite();
+
+  /* ---------------------------------------------------------
+     SHAPE GENERATORS  (each returns Float32Array of N*3)
+  --------------------------------------------------------- */
+  const N = 6600;
+
+  function alloc(){ return new Float32Array(N * 3); }
+
+  function tiltAroundX(arr, angleDeg){
+    const rad = angleDeg * Math.PI / 180;
+    const cs = Math.cos(rad), sn = Math.sin(rad);
+    for (let i = 0; i < N; i++){
+      const iy = i*3+1, iz = i*3+2;
+      const y = arr[iy], z = arr[iz];
+      arr[iy] = y * cs - z * sn;
+      arr[iz] = y * sn + z * cs;
+    }
+    return arr;
+  }
+
+  // 0: single point of light
+  function genPoint(){
+    const p = alloc();
+    for (let i = 0; i < N; i++){
+      const r = 7 * Math.cbrt(Math.random());
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      p[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+      p[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+      p[i*3+2] = r * Math.cos(phi);
+    }
+    return p;
+  }
+
+  // 1: circle — built with vibrating energy
+  function genCircle(){
+    const p = alloc();
+    const radius = 155;
+    for (let i = 0; i < N; i++){
+      const a = (i / N) * Math.PI * 2 + (Math.random() - 0.5) * 0.05;
+      const r = radius + (Math.random() - 0.5) * 18;
+      p[i*3]   = r * Math.cos(a);
+      p[i*3+1] = r * Math.sin(a);
+      p[i*3+2] = (Math.random() - 0.5) * 18;
+    }
+    return p;
+  }
+
+  // 2: DNA double helix with connecting rungs — rotating on its axis
+  function genDNA(){
+    const p = alloc();
+    const height = 360, turns = 6, radius = 62;
+    const rungCount = 46;
+    const strandN = Math.floor(N * 0.36);
+    const rungTotal = N - strandN * 2;
+    const perRung = Math.max(4, Math.floor(rungTotal / rungCount));
+    let idx = 0;
+
+    for (let i = 0; i < strandN; i++){
+      const t = i / strandN;
+      const y = -height/2 + t * height;
+      const angle = t * turns * Math.PI * 2;
+      const jr = radius + (Math.random() - 0.5) * 3;
+      p[idx*3] = jr * Math.cos(angle); p[idx*3+1] = y; p[idx*3+2] = jr * Math.sin(angle);
+      idx++;
+    }
+    for (let i = 0; i < strandN; i++){
+      const t = i / strandN;
+      const y = -height/2 + t * height;
+      const angle = t * turns * Math.PI * 2 + Math.PI;
+      const jr = radius + (Math.random() - 0.5) * 3;
+      p[idx*3] = jr * Math.cos(angle); p[idx*3+1] = y; p[idx*3+2] = jr * Math.sin(angle);
+      idx++;
+    }
+    for (let r = 0; r < rungCount && idx < N; r++){
+      const t = r / (rungCount - 1);
+      const y = -height/2 + t * height;
+      const angle = t * turns * Math.PI * 2;
+      const x1 = radius * Math.cos(angle), z1 = radius * Math.sin(angle);
+      const x2 = radius * Math.cos(angle + Math.PI), z2 = radius * Math.sin(angle + Math.PI);
+      for (let k = 0; k < perRung && idx < N; k++){
+        const f = k / Math.max(1, perRung - 1);
+        const jitter = (Math.random() - 0.5) * 2.2;
+        p[idx*3]   = x1 + (x2 - x1) * f + jitter;
+        p[idx*3+1] = y + jitter * 0.6;
+        p[idx*3+2] = z1 + (z2 - z1) * f + jitter;
+        idx++;
+      }
+    }
+    while (idx < N){
+      const t = Math.random();
+      const y = -height/2 + t * height;
+      const angle = t * turns * Math.PI * 2 + (Math.random() < 0.5 ? 0 : Math.PI);
+      const jr = radius + (Math.random() - 0.5) * 3;
+      p[idx*3] = jr * Math.cos(angle); p[idx*3+1] = y; p[idx*3+2] = jr * Math.sin(angle);
+      idx++;
+    }
+    return p;
+  }
+
+  // 3: fabric of space-time — a rippling, gravity-dipped mesh
+  function genFabric(){
+    const p = alloc();
+    const size = 640;
+    const rows = Math.round(Math.sqrt(N));
+    const cols = Math.ceil(N / rows);
+    let idx = 0;
+    for (let i = 0; i < rows && idx < N; i++){
+      for (let j = 0; j < cols && idx < N; j++){
+        const u = rows > 1 ? i / (rows - 1) - 0.5 : 0;
+        const v = j / (cols - 1) - 0.5;
+        const x = u * size + (Math.random() - 0.5) * 3;
+        const z = v * size + (Math.random() - 0.5) * 3;
+        const dist = Math.sqrt(x*x + z*z);
+        const dip = -240 / (1 + Math.pow(dist / 130, 2));
+        p[idx*3] = x; p[idx*3+1] = dip; p[idx*3+2] = z;
+        idx++;
+      }
+    }
+    while (idx < N){
+      const x = (Math.random() - 0.5) * size;
+      const z = (Math.random() - 0.5) * size;
+      const dist = Math.sqrt(x*x + z*z);
+      const dip = -240 / (1 + Math.pow(dist / 130, 2));
+      p[idx*3] = x; p[idx*3+1] = dip; p[idx*3+2] = z;
+      idx++;
+    }
+    return p;
+  }
+
+  // 4: black hole accretion disk — tilted, rotating
+  function genBlackhole(){
+    const p = alloc();
+    for (let i = 0; i < N; i++){
+      const rr = 42 + Math.pow(Math.random(), 0.55) * 210;
+      const a = Math.random() * Math.PI * 2 + rr * 0.012;
+      const thin = 1 - Math.min(1, (rr - 42) / 210);
+      const y = (Math.random() - 0.5) * (5 + thin * 10);
+      p[i*3]   = rr * Math.cos(a);
+      p[i*3+1] = y;
+      p[i*3+2] = rr * Math.sin(a);
+    }
+    return tiltAroundX(p, 62);
+  }
+
+  // 5: spiral galaxy — tilted, rotating on its axis
+  function genGalaxy(){
+    const p = alloc();
+    const arms = 3;
+    for (let i = 0; i < N; i++){
+      const arm = i % arms;
+      const t = Math.pow(Math.random(), 0.85);
+      const r = t * 330;
+      const angle = t * Math.PI * 4.2 + arm * (Math.PI * 2 / arms) + (Math.random() - 0.5) * 0.35;
+      const spread = (Math.random() - 0.5) * 12 * (1 - t * 0.6);
+      p[i*3]   = r * Math.cos(angle) + (Math.random() - 0.5) * 9;
+      p[i*3+1] = spread;
+      p[i*3+2] = r * Math.sin(angle) + (Math.random() - 0.5) * 9;
+    }
+    return tiltAroundX(p, 56);
+  }
+
+  const shapes = [ genPoint(), genCircle(), genDNA(), genFabric(), genBlackhole(), genGalaxy() ];
+  const SECTIONS = shapes.length;
+
+  // per-shape behaviour profiles
+  const jitterProfile = [0.7, 7.5, 0.9, 0.6, 1.6, 0.9];
+  const rotSpeed      = [0.03, 0.06, 0.28, 0.015, 0.4, 0.14];
+  // pulled in noticeably closer so every shape fills the screen
+  const camZ = [92, 235, 265, 560, 340, 415];
+  const camY = [0,  0,   14,  150, 36,  54];
+
+  /* ---------------------------------------------------------
+     BUFFER GEOMETRY
+  --------------------------------------------------------- */
+  const geometry = new THREE.BufferGeometry();
+  const positions = new Float32Array(N * 3);
+  positions.set(shapes[0]);
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+  const colors = new Float32Array(N * 3);
+  const seeds = new Float32Array(N);
+  // richer, hotter palette — pushed saturation/brightness for a vivid neon feel
+  const orange   = new THREE.Color(0xff8a3d);
+  const hotPink  = new THREE.Color(0xff3d7a);
+  const blue     = new THREE.Color(0x4fc3ff);
+  const cyan     = new THREE.Color(0x6effe0);
+  const white    = new THREE.Color(0xffffff);
+  // boost factor applied on top of the base hue mix — additive blending lets
+  // values above 1.0 push extra-bright, saturated "hot" cores
+  const BOOST = .75;
+  for (let i = 0; i < N; i++){
+    const mix = Math.pow(Math.random(), 0.8);
+    let c;
+    const roll = Math.random();
+    if (roll < 0.42){
+      c = orange.clone().lerp(hotPink, mix);
+    } else if (roll < 0.85){
+      c = blue.clone().lerp(cyan, mix);
+    } else {
+      // sparkle highlights — a handful of near-white hot particles
+      c = orange.clone().lerp(white, 0.75 + mix * 0.25);
+    }
+    colors[i*3]   = Math.min(2, c.r * BOOST);
+    colors[i*3+1] = Math.min(2, c.g * BOOST);
+    colors[i*3+2] = Math.min(2, c.b * BOOST);
+    seeds[i] = Math.random() * Math.PI * 2;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+  const material = new THREE.PointsMaterial({
+    size: 5.4,
+    map: sprite,
+    transparent: true,
+    vertexColors: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    sizeAttenuation: true,
+    opacity: 1
+  });
+  const points = new THREE.Points(geometry, material);
+  scene.add(points);
+
+  // mid glow — a soft bloom sitting close around each particle
+  const glowMat = material.clone();
+  glowMat.map = haloSprite;
+  glowMat.size = 10;
+  glowMat.opacity = 0.45;
+  const glowPoints = new THREE.Points(geometry, glowMat);
+  scene.add(glowPoints);
+
+  // outer halo — a big, faint atmospheric wash for a full "lit up" scene
+  const haloMat = material.clone();
+  haloMat.map = haloSprite;
+  haloMat.size = 22;
+  haloMat.opacity = 0.05;
+  const haloPoints = new THREE.Points(geometry, haloMat);
+  scene.add(haloPoints);
+
+  /* ---------------------------------------------------------
+     SCROLL -> PROGRESS
+  --------------------------------------------------------- */
+  function totalScrollable(){
+    return Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+  }
+  let targetProgress = 0;
+  let smoothProgress = 0;
+
+  function onScroll(){
+    targetProgress = Math.min(1, Math.max(0, window.scrollY / totalScrollable()));
+    const cue = document.getElementById('introCue');
+    cue.style.opacity = targetProgress > 0.015 ? '0' : '1';
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  function smoothstep(t){ return t * t * (3 - 2 * t); }
+
+  const textEls = Array.from(document.querySelectorAll('.section-text'));
+  const dotEls = Array.from(document.querySelectorAll('.rail .dot'));
+
+  /* ---------------------------------------------------------
+     AMBIENT "LIGHTING" — a screen-blended colored glow behind
+     the whole scene that shifts hue per section and breathes
+  --------------------------------------------------------- */
+  const lightAura = document.getElementById('lightAura');
+  const auraColors = [
+    ['#ff8a3d', '#160800'], // point of light — warm ember
+    ['#ff3d7a', '#ff8a3d'], // ring — hot pink/orange energy
+    ['#4fc3ff', '#6effe0'], // dna — cool cyan bio-light
+    ['#4fc3ff', '#081226'], // fabric — vast blue expanse
+    ['#ff3d7a', '#4fc3ff'], // blackhole — pink/blue accretion glow
+    ['#6effe0', '#4fc3ff']  // galaxy — cyan/blue starlight
+  ].map(([a, b]) => [new THREE.Color(a), new THREE.Color(b)]);
+  const auraTmpA = new THREE.Color();
+  const auraTmpB = new THREE.Color();
+
+  /* ---------------------------------------------------------
+     ANIMATION LOOP
+  --------------------------------------------------------- */
+  const clock = new THREE.Clock();
+  const posAttr = geometry.attributes.position.array;
+  let camSmoothY = 0;
+
+  function animate(){
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    const et = clock.getElapsedTime();
+
+    smoothProgress += (targetProgress - smoothProgress) * (reduceMotion ? 0.18 : 0.075);
+
+    const continuousIndex = smoothProgress * (SECTIONS - 1);
+    let seg = Math.floor(continuousIndex);
+    if (seg > SECTIONS - 2) seg = SECTIONS - 2;
+    if (seg < 0) seg = 0;
+    const localT = smoothstep(Math.min(1, Math.max(0, continuousIndex - seg)));
+
+    const shapeA = shapes[seg];
+    const shapeB = shapes[seg + 1];
+    const jitterAmp = jitterProfile[seg] + (jitterProfile[seg+1] - jitterProfile[seg]) * localT;
+    const rSpeed = rotSpeed[seg] + (rotSpeed[seg+1] - rotSpeed[seg]) * localT;
+    const targetCamZ = camZ[seg] + (camZ[seg+1] - camZ[seg]) * localT;
+    const targetCamY = camY[seg] + (camY[seg+1] - camY[seg]) * localT;
+
+    // fabric ripple weight (triangular around shape index 3)
+    const fabricWeight = Math.max(0, 1 - Math.abs(continuousIndex - 3));
+    const jitterScale = reduceMotion ? 0.25 : 1;
+
+    for (let i = 0; i < N; i++){
+      const ix = i*3, iy = i*3+1, iz = i*3+2;
+      let x = shapeA[ix] + (shapeB[ix] - shapeA[ix]) * localT;
+      let y = shapeA[iy] + (shapeB[iy] - shapeA[iy]) * localT;
+      let z = shapeA[iz] + (shapeB[iz] - shapeA[iz]) * localT;
+
+      const j = jitterAmp * jitterScale;
+      const s = seeds[i];
+      x += Math.sin(et * 1.6 + s) * j * 0.5;
+      y += Math.cos(et * 1.4 + s * 1.3) * j * 0.5;
+      z += Math.sin(et * 1.2 + s * 0.7) * j * 0.3;
+
+      if (fabricWeight > 0.01){
+        const distXZ = Math.sqrt(x*x + z*z);
+        y += Math.sin(distXZ * 0.045 - et * 1.8) * 16 * fabricWeight * (reduceMotion ? 0.3 : 1);
+      }
+
+      posAttr[ix] = x; posAttr[iy] = y; posAttr[iz] = z;
+    }
+    geometry.attributes.position.needsUpdate = true;
+
+    const spin = rSpeed * dt * (reduceMotion ? 0.4 : 1);
+    points.rotation.y += spin;
+    glowPoints.rotation.y = points.rotation.y;
+    haloPoints.rotation.y = points.rotation.y;
+    points.rotation.x = Math.sin(et * 0.05) * 0.04;
+    glowPoints.rotation.x = points.rotation.x;
+    haloPoints.rotation.x = points.rotation.x;
+
+    // subtle pulsing "lighting" — glow/halo layers breathe in intensity
+    const pulse = 0.85 + Math.sin(et * 1.1) * 0.15;
+    glowMat.opacity = 0.45 * pulse;
+    haloMat.opacity = 0.16 * (0.8 + Math.sin(et * 0.7 + 1.3) * 0.2);
+
+    camera.position.z += (targetCamZ - camera.position.z) * 0.06;
+    camSmoothY += (targetCamY - camSmoothY) * 0.06;
+    camera.position.y = camSmoothY + Math.cos(et * 0.05) * (reduceMotion ? 3 : 8);
+    camera.position.x = Math.sin(et * 0.06) * (reduceMotion ? 4 : 14);
+    camera.lookAt(0, 0, 0);
+
+    textEls.forEach((el) => {
+      const idx = parseInt(el.dataset.index, 10);
+      const dist = Math.abs(continuousIndex - idx);
+      const opacity = Math.max(0, 1 - dist * 1.35);
+      el.style.opacity = opacity.toFixed(3);
+      el.style.transform = `translateY(${(1 - opacity) * 24}px)`;
+    });
+    const activeIdx = Math.round(continuousIndex);
+    dotEls.forEach((d) => {
+      d.classList.toggle('active', parseInt(d.dataset.i, 10) === activeIdx);
+    });
+
+    // drive the ambient light aura from the same section blend
+    const pairA = auraColors[seg];
+    const pairB = auraColors[seg + 1] || auraColors[seg];
+    auraTmpA.copy(pairA[0]).lerp(pairB[0], localT);
+    auraTmpB.copy(pairA[1]).lerp(pairB[1], localT);
+    const auraX = 50 + Math.sin(et * 0.18) * 18;
+    const auraY = 50 + Math.cos(et * 0.14) * 14;
+    const breathe = 0.7 + Math.sin(et * 0.6) * 0.15;
+    lightAura.style.background =
+      `radial-gradient(circle at ${auraX}% ${auraY}%, ${auraTmpA.getStyle()} 0%, ${auraTmpB.getStyle()} 45%, transparent 78%)`;
+    lightAura.style.opacity = (reduceMotion ? 0.55 : breathe).toFixed(3);
+
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>
