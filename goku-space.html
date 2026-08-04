@@ -537,8 +537,8 @@ function animate(){
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
 
-  mouseNDC.x += (mouseTarget.x - mouseNDC.x) * 0.35;
-  mouseNDC.y += (mouseTarget.y - mouseNDC.y) * 0.35;
+  mouseNDC.x += (mouseTarget.x - mouseNDC.x) * 0.8;
+  mouseNDC.y += (mouseTarget.y - mouseNDC.y) * 0.8;
 
   camAzimuth += dt * 0.5;
   const desiredHeight = CAM_BASE_HEIGHT - mouseNDC.y * CAM_HEIGHT_AMPLITUDE * (pointerActive ? 1 : 0);
