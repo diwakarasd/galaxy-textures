@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Balloon Drift</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --accent: #FF6B57;
+    --bg: #FFFFFF;
+    --ink: #14151A;
+    --ink-soft: rgba(20,21,26,0.62);
+  }
+
+  *{ box-sizing: border-box; }
+
+  html{ scroll-behavior: smooth; }
+
+  body{
+    margin:0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* ---------- balloon field ---------- */
+
+  .balloon-field{
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 4;
+  }
+
+  .balloon{
+    position: absolute;
+    top: 0; left: 0;
+    width: var(--size);
+    will-change: transform;
+  }
+
+  .balloon-string{
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    width: 1px;
+    height: calc(var(--size) * 0.7);
+    background: linear-gradient(to bottom, rgba(20,21,26,0.28), rgba(20,21,26,0));
+    transform: translateX(-50%) rotate(var(--sway, 0deg));
+    transform-origin: top;
+  }
+
+  .balloon-knot{
+    position: absolute;
+    left: 50%;
+    top: 96%;
+    width: calc(var(--size) * 0.09);
+    height: calc(var(--size) * 0.09);
+    background-color: var(--color);
+    transition: background-color 0.9s ease;
+    transform: translateX(-50%) rotate(45deg);
+  }
+
+  .balloon-body{
+    position: relative;
+    width: 100%;
+    aspect-ratio: 0.86 / 1;
+    border-radius: 50% 50% 50% 50% / 58% 58% 42% 42%;
+    background-color: var(--color);
+    transition: background-color 0.9s ease;
+    box-shadow: 0 12px 24px -8px rgba(20,21,26,0.18);
+  }
+
+  .balloon-body::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    border-radius: inherit;
+    background: radial-gradient(ellipse 40% 28% at 30% 24%, rgba(255,255,255,0.95), rgba(255,255,255,0) 70%);
+  }
+
+  .balloon-body::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    border-radius: inherit;
+    box-shadow: inset -6px -10px 18px rgba(0,0,0,0.08);
+  }
+
+  /* ---------- layout ---------- */
+
+  header.masthead{
+    position: relative;
+    z-index: 6;
+    padding: 28px clamp(20px, 5vw, 64px);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    pointer-events: none;
+  }
+
+  header.masthead .wordmark{
+    font-family: 'Baloo 2', sans-serif;
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: 0.02em;
+  }
+
+  header.masthead .clock{
+    font-size: 13px;
+    color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+  }
+
+  section{
+    position: relative;
+    z-index: 6;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 clamp(24px, 8vw, 120px);
+  }
+
+  .panel{
+    max-width: 620px;
+    background: rgba(255,255,255,0.72);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border-radius: 20px;
+    padding: clamp(20px, 4vw, 40px) clamp(20px, 4vw, 44px);
+    pointer-events: none;
+  }
+
+  .eyebrow{
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    transition: color 0.9s ease;
+    margin-bottom: 18px;
+  }
+
+  .eyebrow::before{
+    content:"";
+    width: 26px;
+    height: 1px;
+    background: var(--accent);
+    transition: background-color 0.9s ease;
+  }
+
+  h1, h2.section-title{
+    font-family: 'Baloo 2', sans-serif;
+    font-weight: 800;
+    line-height: 0.98;
+    margin: 0 0 20px;
+    letter-spacing: -0.01em;
+  }
+
+  h1{ font-size: clamp(42px, 7vw, 84px); }
+  h2.section-title{ font-size: clamp(34px, 5.5vw, 60px); }
+
+  p.body-copy{
+    font-size: clamp(16px, 1.6vw, 19px);
+    line-height: 1.6;
+    color: var(--ink-soft);
+    margin: 0;
+    max-width: 52ch;
+  }
+
+  .hint{
+    margin-top: 24px;
+    font-size: 13px;
+    color: var(--ink-soft);
+    opacity: 0.75;
+  }
+
+  footer{
+    position: relative;
+    z-index: 6;
+    padding: 60px clamp(24px, 8vw, 120px) 80px;
+    font-size: 13px;
+    color: var(--ink-soft);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  @media (max-width: 560px){
+    .panel{ border-radius: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="balloon-field" id="balloonField"></div>
+
+<header class="masthead">
+  <div class="wordmark">Balloon&nbsp;Drift</div>
+  <div class="clock" id="clockLabel">05:12</div>
+</header>
+
+<section data-accent="#FF6B57" data-time="05:12">
+  <div class="panel">
+    <div class="eyebrow">05:12 — Sunrise Launch</div>
+    <h1>Nothing holds<br>them down.</h1>
+    <p class="body-copy">Before the streets wake up, a hundred small envelopes of air slip loose from their knots. They don't rise to be seen — they rise because rubber remembers helium better than it remembers ground.</p>
+    <p class="hint">Move your cursor through the sky. Watch them scatter.</p>
+  </div>
+</section>
+
+<section data-accent="#22C55E" data-time="10:40">
+  <div class="panel">
+    <div class="eyebrow">10:40 — Meadow Rise</div>
+    <h2 class="section-title">Uncounted, until<br>someone counts.</h2>
+    <p class="body-copy">By mid-morning the field is thick with green and white, tangled in grass that hasn't been mowed since June. Somewhere a kid is counting how many she can hold in one fist before her arm gives out. Today the count is eleven.</p>
+  </div>
+</section>
+
+<section data-accent="#F5A623" data-time="16:05">
+  <div class="panel">
+    <div class="eyebrow">16:05 — Golden Hour</div>
+    <h2 class="section-title">Even the white<br>ones turn warm.</h2>
+    <p class="body-copy">The light turns everything the color of a candle flame. This is the hour sellers pack up slow, hoping for one more sale before the park empties. Nobody ever buys just one.</p>
+  </div>
+</section>
+
+<section data-accent="#8B5CF6" data-time="19:20">
+  <div class="panel">
+    <div class="eyebrow">19:20 — Twilight Float</div>
+    <h2 class="section-title">Indifferent to<br>violet or void.</h2>
+    <p class="body-copy">Streetlights flicker on before the sky admits it's dark. The balloons don't seem to notice the shift — they keep climbing, chasing the last warm draft off a parking lot.</p>
+  </div>
+</section>
+
+<section data-accent="#4F46E5" data-time="23:50">
+  <div class="panel">
+    <div class="eyebrow">23:50 — Midnight Drift</div>
+    <h2 class="section-title">Belongs to no<br>one now.</h2>
+    <p class="body-copy">Past midnight the wind stops asking permission. Every balloon still aloft is adrift somewhere between a rooftop party and the actual stars. Reach out — see how far it gets before it decides to trust you again.</p>
+  </div>
+</section>
+
+<footer>
+  <span>Balloon Drift — an ambient study in letting go</span>
+  <span id="footerAccentLabel">Sunrise Launch</span>
+</footer>
+
+<script>
+(function(){
+  const field = document.getElementById('balloonField');
+  const sections = Array.from(document.querySelectorAll('section[data-accent]'));
+  const clockLabel = document.getElementById('clockLabel');
+  const footerLabel = document.getElementById('footerAccentLabel');
+  const root = document.documentElement;
+
+  const WHITE = '#FFFFFF';
+  const NUM_BALLOONS = 66;
+  const REPEL_RADIUS = 270;
+  const REPEL_STRENGTH = 230;
+
+  let currentAccent = sections[0].dataset.accent;
+  let vw = window.innerWidth;
+  let vh = window.innerHeight;
+
+  const mouse = { x: -9999, y: -9999, active: false };
+
+  // ---- build balloons ----
+  const balloons = [];
+
+  function randomBetween(a, b){ return a + Math.random() * (b - a); }
+
+  function pickColor(){
+    return Math.random() < 0.5 ? WHITE : currentAccent;
+  }
+
+  for (let i = 0; i < NUM_BALLOONS; i++){
+    const size = randomBetween(46, 168);
+    const el = document.createElement('div');
+    el.className = 'balloon';
+    el.style.setProperty('--size', size + 'px');
+
+    const body = document.createElement('div');
+    body.className = 'balloon-body';
+    body.style.setProperty('--color', pickColor());
+
+    const knot = document.createElement('div');
+    knot.className = 'balloon-knot';
+    knot.style.setProperty('--color', body.style.getPropertyValue('--color'));
+
+    const string = document.createElement('div');
+    string.className = 'balloon-string';
+
+    el.appendChild(body);
+    el.appendChild(knot);
+    el.appendChild(string);
+    field.appendChild(el);
+
+    balloons.push({
+      el, body, knot, string,
+      size,
+      baseX: randomBetween(0, 1) * vw,
+      y: randomBetween(-vh, vh),
+      speed: randomBetween(14, 34),          // px/sec upward
+      swayAmp: randomBetween(18, 55),
+      swayFreq: randomBetween(0.25, 0.55),
+      phase: randomBetween(0, Math.PI * 2),
+      dispX: 0, dispY: 0
+    });
+  }
+
+  function recolorBalloons(){
+    balloons.forEach(b => {
+      const c = pickColor();
+      b.body.style.setProperty('--color', c);
+      b.knot.style.setProperty('--color', c);
+    });
+  }
+
+  // ---- theme switching on scroll ----
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting && entry.intersectionRatio > 0.5){
+        const accent = entry.target.dataset.accent;
+        const time = entry.target.dataset.time;
+        const title = entry.target.querySelector('.eyebrow').textContent.split('—')[1].trim();
+        if (accent !== currentAccent){
+          currentAccent = accent;
+          root.style.setProperty('--accent', accent);
+          recolorBalloons();
+        }
+        clockLabel.textContent = time;
+        footerLabel.textContent = title;
+      }
+    });
+  }, { threshold: [0.5] });
+
+  sections.forEach(s => observer.observe(s));
+
+  // ---- mouse tracking ----
+  window.addEventListener('mousemove', (e) => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+    mouse.active = true;
+  });
+  window.addEventListener('mouseleave', () => { mouse.active = false; });
+  window.addEventListener('touchmove', (e) => {
+    if (e.touches && e.touches[0]){
+      mouse.x = e.touches[0].clientX;
+      mouse.y = e.touches[0].clientY;
+      mouse.active = true;
+    }
+  }, { passive: true });
+
+  window.addEventListener('resize', () => {
+    vw = window.innerWidth;
+    vh = window.innerHeight;
+  });
+
+  // ---- animation loop ----
+  let lastT = performance.now();
+
+  function tick(now){
+    const dt = Math.min((now - lastT) / 1000, 0.05);
+    lastT = now;
+
+    balloons.forEach(b => {
+      // upward drift, loop back to bottom
+      b.y -= b.speed * dt;
+      if (b.y < -b.size * 1.4){
+        b.y = vh + randomBetween(0, 120);
+        b.baseX = randomBetween(0, 1) * vw;
+      }
+
+      const sway = Math.sin(now / 1000 * b.swayFreq + b.phase) * b.swayAmp;
+      const targetX = b.baseX + sway;
+      const targetY = b.y;
+
+      // repel target based on live distance (springs back to 0 automatically)
+      let targetDispX = 0, targetDispY = 0;
+      if (mouse.active){
+        const cx = targetX + b.size / 2;
+        const cy = targetY + b.size / 2;
+        const dx = cx - mouse.x;
+        const dy = cy - mouse.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        if (dist < REPEL_RADIUS){
+          const force = (1 - dist / REPEL_RADIUS);
+          targetDispX = (dx / dist) * force * REPEL_STRENGTH;
+          targetDispY = (dy / dist) * force * REPEL_STRENGTH;
+        }
+      }
+
+      b.dispX += (targetDispX - b.dispX) * 0.14;
+      b.dispY += (targetDispY - b.dispY) * 0.14;
+
+      const finalX = targetX + b.dispX;
+      const finalY = targetY + b.dispY;
+
+      b.el.style.transform = `translate3d(${finalX}px, ${finalY}px, 0)`;
+      b.string.style.setProperty('--sway', (sway * 0.15) + 'deg');
+    });
+
+    requestAnimationFrame(tick);
+  }
+
+  requestAnimationFrame(tick);
+})();
+</script>
+
+</body>
+</html>
