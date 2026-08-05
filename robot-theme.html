@@ -468,7 +468,8 @@ gltfLoader.load(
     if (obj.material) {
 
       obj.material.transparent = true;
-      obj.material.opacity = 0.45;      // 0 = invisible, 1 = solid
+     obj.material.opacity = 0.45;
+    obj.material.userData.baseOpacity = 0.45;
       obj.material.depthWrite = false;  // Better transparency
       obj.material.side = THREE.DoubleSide;
       obj.material.envMapIntensity = 1;
@@ -532,8 +533,11 @@ master.to(robotRig.rotation, { y: Math.PI*4, ease:'none', duration:1 }, 0);
 ScrollTrigger.create({
   trigger:'#finale-section', start:'top 90%', end:'top 25%', scrub:0.6,
   onUpdate:(self)=>{
-    const op = 1 - self.progress;
-    robotMaterials.forEach((m)=>{ m.opacity = op; });
+    robotMaterials.forEach((m)=>{
+
+    m.opacity = m.userData.baseOpacity * (1 - self.progress);
+
+});
   }
 });
 
@@ -721,7 +725,9 @@ gsap.to('#logo-caption', {
 document.getElementById('cta-restart').addEventListener('click', ()=>{
   window.scrollTo({ top:0, behavior:'smooth' });
   startTime = Date.now();
-  robotMaterials.forEach((m)=>{ m.opacity = 1; });
+  robotMaterials.forEach((m)=>{
+    m.opacity = m.userData.baseOpacity;
+});
 });
 
 ScrollTrigger.refresh();
