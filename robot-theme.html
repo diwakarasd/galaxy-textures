@@ -455,7 +455,7 @@ gltfLoader.load(
     box.getSize(size);
     box.getCenter(center);
 
-    const targetHeight = 3;
+    const targetHeight = 1.5;
     const scale = targetHeight / (size.y || 1);
     model.scale.setScalar(scale);
     model.position.set(-center.x*scale, -center.y*scale, -center.z*scale);
