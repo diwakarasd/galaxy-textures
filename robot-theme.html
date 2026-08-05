@@ -461,15 +461,22 @@ gltfLoader.load(
     model.position.set(-center.x*scale, -center.y*scale, -center.z*scale);
 
     model.traverse((obj) => {
-      if(obj.isMesh){
-        obj.frustumCulled = false;
-        if(obj.material){
-          obj.material.transparent = true;
-          obj.material.envMapIntensity = 1;
-          robotMaterials.push(obj.material);
-        }
-      }
-    });
+  if (obj.isMesh) {
+
+    obj.frustumCulled = false;
+
+    if (obj.material) {
+
+      obj.material.transparent = true;
+      obj.material.opacity = 0.45;      // 0 = invisible, 1 = solid
+      obj.material.depthWrite = false;  // Better transparency
+      obj.material.side = THREE.DoubleSide;
+      obj.material.envMapIntensity = 1;
+
+      robotMaterials.push(obj.material);
+    }
+  }
+});
 
     robotRig.add(model);
 
