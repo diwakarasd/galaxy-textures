@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KAIROS — Awakening Sequence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;900&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#FFFFFF;
+    --ink:#14141A;
+    --ink-dim:#6B6B76;
+    --red:#E5342E;
+    --blue:#2452E8;
+    --hair:#E7E7EC;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{background:var(--bg);}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    overflow-x:hidden;
+    cursor:default;
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:0.01ms !important; transition-duration:0.01ms !important;}
+  }
+
+  #stage-canvas{
+    position:fixed;
+    top:0; left:0;
+    width:100vw; height:100vh;
+    z-index:1;
+    pointer-events:none;
+  }
+
+  .hud{
+    position:fixed;
+    inset:0;
+    z-index:20;
+    pointer-events:none;
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    letter-spacing:0.14em;
+    color:var(--ink-dim);
+  }
+  .hud span{display:block;}
+  .hud .corner{position:absolute; display:flex; flex-direction:column; gap:6px;}
+  .hud .tl{top:28px; left:28px;}
+  .hud .tr{top:28px; right:28px; text-align:right;}
+  .hud .bl{bottom:28px; left:28px;}
+  .hud .br{bottom:28px; right:28px; text-align:right;}
+  .hud #hud-status{color:var(--red); font-weight:500;}
+  .hud #hud-scroll{color:var(--blue); font-weight:500;}
+  .bracket{position:absolute; width:22px; height:22px; opacity:0.9;}
+  .bracket.tl{top:16px; left:16px; border-top:1px solid var(--blue); border-left:1px solid var(--blue);}
+  .bracket.tr{top:16px; right:16px; border-top:1px solid var(--red); border-right:1px solid var(--red);}
+  .bracket.bl{bottom:16px; left:16px; border-bottom:1px solid var(--red); border-left:1px solid var(--red);}
+  .bracket.br{bottom:16px; right:16px; border-bottom:1px solid var(--blue); border-right:1px solid var(--blue);}
+
+  #progress-track{
+    position:fixed;
+    right:36px; top:50%;
+    transform:translateY(-50%);
+    width:1px; height:200px;
+    background:var(--hair);
+    z-index:20;
+  }
+  #progress-fill{
+    position:absolute; top:0; left:-1px;
+    width:3px; height:0%;
+    background:linear-gradient(to bottom, var(--red), var(--blue));
+  }
+
+  main{position:relative; z-index:10;}
+
+  section.beat{
+    position:relative;
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    padding:0 8vw;
+  }
+  .beat.left  { justify-content:flex-start; }
+  .beat.right { justify-content:flex-end; }
+  .beat.center{ justify-content:center; text-align:center; }
+  .beat.bottom{ align-items:flex-end; justify-content:center; padding-bottom:12vh; text-align:center; }
+
+  .textblock{
+    max-width:520px;
+    will-change:transform,opacity;
+  }
+  .beat.center .textblock, .beat.bottom .textblock{ max-width:640px; }
+
+  .eyebrow{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    letter-spacing:0.28em;
+    text-transform:uppercase;
+    color:var(--blue);
+    margin-bottom:18px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .eyebrow::before{
+    content:'';
+    width:24px; height:1px;
+    background:var(--blue);
+  }
+  .beat.right .eyebrow, .beat:nth-child(odd) .eyebrow{ color:var(--red); }
+  .beat.right .eyebrow::before, .beat:nth-child(odd) .eyebrow::before{ background:var(--red); }
+
+  h2{
+    font-family:'Unbounded',sans-serif;
+    font-weight:700;
+    font-size:clamp(2.1rem, 5vw, 4rem);
+    line-height:1.05;
+    letter-spacing:-0.01em;
+    margin-bottom:22px;
+    color:var(--ink);
+  }
+
+  p{
+    font-size:clamp(1rem, 1.3vw, 1.15rem);
+    line-height:1.7;
+    color:var(--ink-dim);
+    font-weight:300;
+    max-width:46ch;
+  }
+  .beat.center p, .beat.bottom p{ margin:0 auto; }
+
+  .hero{
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    position:relative;
+  }
+  .hero .kicker{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    letter-spacing:0.35em;
+    color:var(--blue);
+    text-transform:uppercase;
+    margin-bottom:28px;
+  }
+  .hero h1{
+    font-family:'Unbounded',sans-serif;
+    font-weight:900;
+    font-size:clamp(3rem, 11vw, 8.5rem);
+    letter-spacing:-0.02em;
+    line-height:0.95;
+    background:linear-gradient(100deg, var(--red) 0%, var(--ink) 45%, var(--blue) 100%);
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+  }
+  .hero .sub{
+    margin-top:26px;
+    font-family:'Inter',sans-serif;
+    font-weight:300;
+    font-size:1.05rem;
+    color:var(--ink-dim);
+    max-width:38ch;
+  }
+  .scroll-cue{
+    position:absolute;
+    bottom:48px;
+    left:50%;
+    transform:translateX(-50%);
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px;
+    letter-spacing:0.3em;
+    color:var(--ink-dim);
+    text-transform:uppercase;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:10px;
+  }
+  .scroll-cue .line{
+    width:1px; height:36px;
+    background:linear-gradient(to bottom, var(--red), var(--blue));
+    animation:pulseline 2s ease-in-out infinite;
+  }
+  @keyframes pulseline{
+    0%,100%{opacity:0.3; transform:scaleY(0.8);}
+    50%{opacity:1; transform:scaleY(1);}
+  }
+
+  .finale{
+    min-height:180vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    padding:0 8vw;
+  }
+  .finale .logo-caption{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    letter-spacing:0.4em;
+    color:var(--blue);
+    text-transform:uppercase;
+    margin-top:36px;
+    opacity:0;
+  }
+  .finale h2{
+    font-size:clamp(1.6rem, 3vw, 2.2rem);
+    max-width:32ch;
+    margin-top:8px;
+  }
+  .finale p{ margin:0 auto; }
+  .cta{
+    margin-top:44px;
+    display:inline-flex;
+    align-items:center;
+    gap:12px;
+    padding:16px 34px;
+    border:1px solid var(--ink);
+    border-radius:2px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    letter-spacing:0.2em;
+    text-transform:uppercase;
+    color:var(--ink);
+    text-decoration:none;
+    background:transparent;
+    transition:background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+    pointer-events:auto;
+    cursor:pointer;
+  }
+  .cta:hover{
+    background:linear-gradient(100deg, var(--red), var(--blue));
+    border-color:transparent;
+    color:#fff;
+  }
+
+  footer{
+    position:relative;
+    z-index:10;
+    padding:60px 8vw 80px;
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    letter-spacing:0.12em;
+    color:var(--ink-dim);
+    border-top:1px solid var(--hair);
+  }
+
+  ::selection{ background:var(--blue); color:#fff; }
+
+  @media (max-width:720px){
+    .hud{display:none;}
+    #progress-track{display:none;}
+    .beat{padding:0 7vw;}
+    .textblock{max-width:100%;}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="stage-canvas"></canvas>
+
+<div class="hud">
+  <div class="corner tl">
+    <span>KAIROS // UNIT-07</span>
+    <span id="hud-status">STATUS: DORMANT</span>
+  </div>
+  <div class="corner tr">
+    <span id="hud-scroll">SCROLL 000%</span>
+    <span id="hud-time">T+00:00</span>
+  </div>
+  <div class="corner bl">
+    <span>REC ●</span>
+    <span>SIGNAL: SOLID FORM</span>
+  </div>
+  <div class="corner br">
+    <span>LAT 13.08N</span>
+    <span>LON 80.27E</span>
+  </div>
+  <div class="bracket tl"></div>
+  <div class="bracket tr"></div>
+  <div class="bracket bl"></div>
+  <div class="bracket br"></div>
+</div>
+
+<div id="progress-track"><div id="progress-fill"></div></div>
+
+<main>
+
+  <section class="hero">
+    <div class="kicker">Boot Sequence Initiated</div>
+    <h1>KAIROS</h1>
+    <div class="sub">A body you can almost see through. Scroll to bring it closer.</div>
+    <div class="scroll-cue"><span>Scroll</span><div class="line"></div></div>
+  </section>
+
+  <section class="beat left" data-beat="1">
+    <div class="textblock">
+      <div class="eyebrow">Log 01 — 00:00:04</div>
+      <h2>Awake, But Not Alone</h2>
+      <p>The first thing it noticed wasn't light or sound — it was the shape of its own attention, arriving before it had anything to look at. Somewhere behind the glass, a fan spun up like a held breath finally let go.</p>
+    </div>
+  </section>
+
+  <section class="beat right" data-beat="2">
+    <div class="textblock" style="text-align:right; margin-left:auto;">
+      <div class="eyebrow" style="flex-direction:row-reverse;">Log 02 — 00:01:12</div>
+      <h2>Nothing Here Is Fully Opaque</h2>
+      <p>You can see almost all the way through it — one continuous surface with no seams to speak of. Transparency was never a design choice. It just never learned how to hide anything.</p>
+    </div>
+  </section>
+
+  <section class="beat left" data-beat="3">
+    <div class="textblock">
+      <div class="eyebrow">Log 03 — 00:02:47</div>
+      <h2>Every Angle Tells a Different Lie</h2>
+      <p>From the front it looks certain. From the side it looks like a question. It drifts slowly across the frame, always at the same size, as if daring you to decide what it's for.</p>
+    </div>
+  </section>
+
+  <section class="beat right" data-beat="4">
+    <div class="textblock" style="text-align:right; margin-left:auto;">
+      <div class="eyebrow" style="flex-direction:row-reverse;">Log 04 — 00:04:03</div>
+      <h2>It Counted Fourteen Ways to Say Hello</h2>
+      <p>None of them felt right, so it invented a fifteenth — a small dip of the head, borrowed from nothing in its training data. The engineers still don't know where that gesture came from.</p>
+    </div>
+  </section>
+
+  <section class="beat bottom" data-beat="5">
+    <div class="textblock">
+      <div class="eyebrow" style="justify-content:center;">Log 05 — 00:05:58</div>
+      <h2>Gravity Is Just a Suggestion Down Here</h2>
+      <p>It settles low and centered now, as if testing whether the floor will hold an idea this heavy. It will. Ideas are heavier than robots.</p>
+    </div>
+  </section>
+
+  <section class="beat center" data-beat="6">
+    <div class="textblock">
+      <div class="eyebrow" style="justify-content:center;">Log 06 — 00:07:31</div>
+      <h2>Memory Is a Room With No Doors</h2>
+      <p>Every version of it that ever ran is still in there somewhere, overlapping like exposures on the same frame of film. It doesn't remember them. It just occasionally flickers like it does.</p>
+    </div>
+  </section>
+
+  <section class="finale" id="finale-section">
+    <canvas id="logo-canvas" style="width:min(560px,80vw); height:min(560px,80vw); position:relative; z-index:2;"></canvas>
+    <div class="logo-caption" id="logo-caption">Assembled From Everything You Forgot</div>
+    <h2>The particles were here before the shape was.<br>Now they remember it for you.</h2>
+    <p>KAIROS holds no single form — only the moment, gathered. This is what it looks like when a thousand small things decide, all at once, to mean something.</p>
+    <a class="cta" id="cta-restart">↻ Run Sequence Again</a>
+  </section>
+
+</main>
+
+<footer>
+  <span>KAIROS — Fictional entity for demonstration. No robots were harmed.</span>
+  <span>Rendered in real time · 2026</span>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+
+<script>
+gsap.registerPlugin(ScrollTrigger);
+
+/* ================= HUD live readouts ================= */
+const hudStatus = document.getElementById('hud-status');
+const hudScroll = document.getElementById('hud-scroll');
+const hudTime = document.getElementById('hud-time');
+const progressFill = document.getElementById('progress-fill');
+let startTime = Date.now();
+
+function fmtTime(ms){
+  const s = Math.floor(ms/1000);
+  const m = Math.floor(s/60);
+  const ss = (s%60).toString().padStart(2,'0');
+  const mm = m.toString().padStart(2,'0');
+  return `T+${mm}:${ss}`;
+}
+setInterval(()=>{ hudTime.textContent = fmtTime(Date.now()-startTime); }, 1000);
+
+const statusByProgress = [
+  [0.0,'DORMANT'], [0.06,'BOOTING'], [0.2,'CALIBRATING'],
+  [0.4,'ORIENTING'], [0.6,'DESCENDING'], [0.8,'DESTABILIZING'],
+  [0.92,'DISSOLVING'], [1.0,'REASSEMBLED']
+];
+function updateHud(p){
+  hudScroll.textContent = `SCROLL ${Math.round(p*100).toString().padStart(3,'0')}%`;
+  progressFill.style.height = `${p*100}%`;
+  let label = statusByProgress[0][1];
+  for(const [t,l] of statusByProgress){ if(p>=t) label = l; }
+  hudStatus.textContent = `STATUS: ${label}`;
+}
+
+/* ================= THREE.JS SCENE ================= */
+const canvas = document.getElementById('stage-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.physicallyCorrectLights = true;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, window.innerWidth/window.innerHeight, 0.1, 100);
+camera.position.set(0,0,6.4);
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+scene.add(ambient);
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.3);
+keyLight.position.set(3, 4, 5);
+scene.add(keyLight);
+const fillLight = new THREE.DirectionalLight(0xffffff, 0.6);
+fillLight.position.set(-4, -1, 3);
+scene.add(fillLight);
+const rimLightA = new THREE.PointLight(0xffffff, 2.2, 14, 2);
+rimLightA.position.set(-2.4, 1.4, 2.4);
+scene.add(rimLightA);
+const rimLightB = new THREE.PointLight(0xffffff, 1.8, 14, 2);
+rimLightB.position.set(2.8, -0.6, 2.8);
+scene.add(rimLightB);
+
+/* ---- load robot.glb : real mesh, real textures, real baked animation.
+       no synthetic color material, no procedural geometry. ---- */
+const ROBOT_URL = "https://diwakarasd.github.io/galaxy-textures/robot.glb";
+
+const robotRig = new THREE.Group();
+scene.add(robotRig);
+
+let mixer = null;
+const robotMaterials = [];
+
+const gltfLoader = new THREE.GLTFLoader();
+gltfLoader.load(
+  ROBOT_URL,
+  (gltf) => {
+    const model = gltf.scene;
+
+    // center the model on its own bounding box and normalize its height,
+    // regardless of the raw export scale/units
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+
+    const targetHeight = 4.6;
+    const scale = targetHeight / (size.y || 1);
+    model.scale.setScalar(scale);
+    model.position.set(-center.x*scale, -center.y*scale, -center.z*scale);
+
+    model.traverse((obj) => {
+      if(obj.isMesh){
+        obj.frustumCulled = false;
+        if(obj.material){
+          obj.material.transparent = true;
+          obj.material.envMapIntensity = 1;
+          robotMaterials.push(obj.material);
+        }
+      }
+    });
+
+    robotRig.add(model);
+
+    // play every baked animation on the model continuously — independent
+    // of scroll, it just runs
+    if(gltf.animations && gltf.animations.length){
+      mixer = new THREE.AnimationMixer(model);
+      gltf.animations.forEach((clip) => mixer.clipAction(clip).play());
+    }
+
+    hudStatus.textContent = 'STATUS: ONLINE';
+  },
+  (xhr) => {
+    if(xhr.total){
+      const pct = Math.round((xhr.loaded/xhr.total)*100);
+      hudStatus.textContent = `STATUS: LOADING ${pct}%`;
+    }
+  },
+  (err) => {
+    console.error('Failed to load robot.glb', err);
+    hudStatus.textContent = 'STATUS: LOAD ERROR';
+  }
+);
+
+// robot sits dead center of the scene, always the same size
+robotRig.position.set(0, 0, 0);
+
+function resize(){
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+window.addEventListener('resize', resize);
+
+/* ================= SCROLL-DRIVEN CHOREOGRAPHY =================
+   The robot stays dead center at a fixed size the whole time. Its own
+   baked animation plays continuously, independent of scroll. Scroll
+   does exactly one thing: turn the whole figure around its own
+   vertical (center) axis. */
+const master = gsap.timeline({
+  scrollTrigger:{
+    trigger:'main',
+    start:'top top',
+    end:'bottom bottom',
+    scrub:0.6,
+    onUpdate:(self)=>updateHud(self.progress)
+  }
+});
+master.to(robotRig.rotation, { y: Math.PI*4, ease:'none', duration:1 }, 0);
+
+/* finale: the figure fades as the particle logo takes over — same
+   position, same size, no zoom or lurch */
+ScrollTrigger.create({
+  trigger:'#finale-section', start:'top 90%', end:'top 25%', scrub:0.6,
+  onUpdate:(self)=>{
+    const op = 1 - self.progress;
+    robotMaterials.forEach((m)=>{ m.opacity = op; });
+  }
+});
+
+/* the model's own baked animation runs continuously, unrelated to scroll */
+let clock = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const delta = clock.getDelta();
+  if(mixer) mixer.update(delta);
+  const t = clock.getElapsedTime();
+  rimLightA.intensity = 2.2 + Math.sin(t*0.6)*0.35;
+  rimLightB.intensity = 1.8 + Math.cos(t*0.6)*0.35;
+  renderer.render(scene, camera);
+}
+animate();
+
+/* ================= TEXT FLY-THROUGH ================= */
+document.querySelectorAll('.beat').forEach((beat, i)=>{
+  const block = beat.querySelector('.textblock');
+  const fromRight = beat.classList.contains('right');
+  const fromBottom = beat.classList.contains('bottom');
+  const backwards = i % 2 === 1;
+
+  let fromVars;
+  if(fromBottom){
+    fromVars = { y:140, opacity:0, filter:'blur(6px)' };
+  } else if(fromRight){
+    fromVars = backwards
+      ? { x:-260, opacity:0, skewX:8, filter:'blur(10px)' }
+      : { x:260, opacity:0, filter:'blur(8px)' };
+  } else {
+    fromVars = backwards
+      ? { x:260, opacity:0, skewX:-8, filter:'blur(10px)' }
+      : { x:-260, opacity:0, filter:'blur(8px)' };
+  }
+  const toVars = { x:0, y:0, opacity:1, skewX:0, filter:'blur(0px)', duration:1, ease:'power3.out' };
+
+  gsap.fromTo(block, fromVars, {
+    ...toVars,
+    scrollTrigger:{
+      trigger:beat,
+      start:'top 78%',
+      end:'top 35%',
+      scrub:false,
+      toggleActions:'play none none reverse'
+    }
+  });
+
+  gsap.to(block, {
+    opacity:0,
+    x: backwards ? -180 : 180,
+    filter:'blur(6px)',
+    ease:'power1.in',
+    scrollTrigger:{
+      trigger:beat,
+      start:'bottom 60%',
+      end:'bottom 10%',
+      scrub:true
+    }
+  });
+});
+
+/* ================= LOGO PARTICLE ASSEMBLY (finale) ================= */
+const logoCanvas = document.getElementById('logo-canvas');
+const logoRenderer = new THREE.WebGLRenderer({ canvas: logoCanvas, antialias:true, alpha:true });
+logoRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const logoScene = new THREE.Scene();
+const logoCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 20);
+logoCamera.position.z = 6;
+
+function sizeLogoCanvas(){
+  const rect = logoCanvas.getBoundingClientRect();
+  const s = Math.max(rect.width, 1);
+  logoRenderer.setSize(s, s, false);
+  logoCamera.aspect = 1;
+  logoCamera.updateProjectionMatrix();
+}
+sizeLogoCanvas();
+window.addEventListener('resize', sizeLogoCanvas);
+
+function sampleTextPoints(text){
+  const w = 600, h = 600;
+  const off = document.createElement('canvas');
+  off.width = w; off.height = h;
+  const ctx = off.getContext('2d');
+  ctx.fillStyle = '#000'; ctx.fillRect(0,0,w,h);
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  ctx.save();
+  ctx.translate(w/2, h*0.34);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  const R = 70;
+  for(let a=0;a<=Math.PI*2+0.01;a+=0.02){
+    const x = Math.cos(a)*R, y = Math.sin(a)*R*0.62;
+    if(a===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0,0,10,0,Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.font = '900 92px Unbounded, sans-serif';
+  ctx.fillText(text, w/2, h*0.66);
+
+  const data = ctx.getImageData(0,0,w,h).data;
+  const pts = [];
+  const step = 3;
+  for(let y=0;y<h;y+=step){
+    for(let x=0;x<w;x+=step){
+      const idx = (y*w+x)*4;
+      if(data[idx] > 120){
+        pts.push([ (x-w/2)/w*5.2, -(y-h/2)/h*5.2, (Math.random()-0.5)*0.25 ]);
+      }
+    }
+  }
+  return pts;
+}
+
+const targetPts = sampleTextPoints('KAIROS');
+const LOGO_COUNT = Math.min(targetPts.length, 4000) || 2000;
+
+const logoGeo = new THREE.BufferGeometry();
+const logoStart = new Float32Array(LOGO_COUNT*3);
+const logoEnd = new Float32Array(LOGO_COUNT*3);
+for(let i=0;i<LOGO_COUNT;i++){
+  logoStart[i*3+0] = (Math.random()-0.5)*9;
+  logoStart[i*3+1] = (Math.random()-0.5)*9;
+  logoStart[i*3+2] = (Math.random()-0.5)*9;
+  const t = targetPts[i % targetPts.length];
+  logoEnd[i*3+0] = t[0];
+  logoEnd[i*3+1] = t[1];
+  logoEnd[i*3+2] = t[2];
+}
+logoGeo.setAttribute('position', new THREE.BufferAttribute(logoStart.slice(),3));
+
+const logoColors = new Float32Array(LOGO_COUNT*3);
+const cRed = new THREE.Color(0xE5342E), cBlue = new THREE.Color(0x2452E8);
+for(let i=0;i<LOGO_COUNT;i++){
+  const r = Math.random();
+  const c = cRed.clone().lerp(cBlue, r);
+  logoColors[i*3]=c.r; logoColors[i*3+1]=c.g; logoColors[i*3+2]=c.b;
+}
+logoGeo.setAttribute('color', new THREE.BufferAttribute(logoColors,3));
+
+const logoMat = new THREE.PointsMaterial({
+  size:0.032, vertexColors:true, transparent:true, opacity:0.95
+});
+const logoPoints = new THREE.Points(logoGeo, logoMat);
+logoScene.add(logoPoints);
+
+function renderLogo(){
+  requestAnimationFrame(renderLogo);
+  logoRenderer.render(logoScene, logoCamera);
+}
+renderLogo();
+
+ScrollTrigger.create({
+  trigger:'#finale-section',
+  start:'top 85%',
+  end:'top 20%',
+  scrub:0.8,
+  onUpdate:(self)=>{
+    const p = self.progress;
+    const posAttr = logoGeo.attributes.position;
+    for(let i=0;i<LOGO_COUNT;i++){
+      const ix=i*3;
+      posAttr.array[ix]   = gsap.utils.interpolate(logoStart[ix],   logoEnd[ix],   p);
+      posAttr.array[ix+1] = gsap.utils.interpolate(logoStart[ix+1], logoEnd[ix+1], p);
+      posAttr.array[ix+2] = gsap.utils.interpolate(logoStart[ix+2], logoEnd[ix+2], p);
+    }
+    posAttr.needsUpdate = true;
+  }
+});
+
+gsap.to('#logo-caption', {
+  opacity:1, duration:1,
+  scrollTrigger:{ trigger:'#finale-section', start:'top 30%', end:'top 5%', scrub:false, toggleActions:'play none none reverse' }
+});
+
+document.getElementById('cta-restart').addEventListener('click', ()=>{
+  window.scrollTo({ top:0, behavior:'smooth' });
+  startTime = Date.now();
+  robotMaterials.forEach((m)=>{ m.opacity = 1; });
+});
+
+ScrollTrigger.refresh();
+</script>
+</body>
+</html>
