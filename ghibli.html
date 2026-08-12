@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Windows · Live Hand-Frame AnimeGAN Filter</title>
+<title>Windowxyz · Live Hand-Frame AnimeGAN Filter</title>
 <style>
   :root{
     --bg:#0B0D10;
@@ -111,16 +111,11 @@
   }
   .controls .group{ display:flex; align-items:center; gap:8px; }
   .controls label{ font-family:var(--mono); font-size:10.5px; color:var(--muted); letter-spacing:.06em; text-transform:uppercase; }
-  select{
-    font-family:var(--mono); font-size:11.5px; background:var(--panel-2); color:var(--text);
-    border:1px solid var(--line); border-radius:5px; padding:6px 8px;
-  }
   .spacer{ flex:1; }
   .controls .btn{ padding:9px 14px; font-size:11.5px; }
 
   footer{ width:100%; max-width:920px; font-family:var(--mono); font-size:10.5px; color:var(--muted); line-height:1.6; }
   footer b{ color:var(--text); }
-  footer a{ color:var(--teal); }
 </style>
 </head>
 <body>
@@ -145,6 +140,7 @@
     <div class="hud-right" id="hudRight">
       <div>infer: <b id="inferMs">--</b> ms</div>
       <div id="modelTag">AnimeGANv2 · face_paint_v2</div>
+      <div id="workerTag">worker: off-main-thread</div>
     </div>
 
     <div class="corner tl"></div>
@@ -158,8 +154,9 @@
         <p id="overlayText">
           Bring the thumb and index finger of <b>each</b> hand up in front of the camera, like
           you're framing a photo. The four fingertips form a window — everything inside it is run
-          live through the real <b>AnimeGANv2</b> neural network and rendered as actual anime-style
-          art; everything outside stays the real camera feed.
+          live through the real <b>AnimeGANv2</b> neural network (in a background Web Worker, so
+          the page never freezes) and rendered as actual anime-style art; everything outside stays
+          the real camera feed.
         </p>
         <button class="btn" id="startBtn">Start camera</button>
         <div class="progress" id="modelProgress"><div id="modelProgressBar"></div></div>
@@ -172,7 +169,7 @@
   <div class="controls" id="controls" style="display:none;">
     <div class="group">
       <label>Model input</label>
-      <span style="font-family:var(--mono); font-size:11.5px; color:var(--text);">512×512 (fixed)</span>
+      <span style="font-family:var(--mono); font-size:11.5px;">512×512 (fixed)</span>
     </div>
     <div class="spacer"></div>
     <button class="btn ghost" id="snapBtn">Save frame</button>
@@ -180,28 +177,26 @@
   </div>
 
   <footer>
-    Runs fully in your browser — no video leaves your machine. Hand tracking is
-    <b>MediaPipe Hands</b>; the cartoon window is the real
-    <b>AnimeGANv2 (face_paint_v2)</b> ONNX model, run on-device with
-    <b>onnxruntime-web</b> (WebGL if your GPU supports it, otherwise WASM on the CPU).
-    Both are fetched from a CDN / Hugging Face on start, so this needs an internet
-    connection the first time. Honest caveat: a real neural style-transfer model is much
-    heavier than a canvas filter — the window's <i>position</i> tracks your hands every
-    frame, but the <i>stylized pixels</i> only refresh as fast as your device can run one
-    512×512 forward pass through the network (this model's exported graph has a fixed input
-    size, so it always runs at 512×512 regardless of window size). Runs on the CPU via WASM,
-    so each refresh behaves more like "snap a stylized photo every few seconds" than real-time
-    video — typically well under 1 fps on a laptop CPU. If the model or camera fails to load in this sandbox, download the file and
-    open it from a local server, e.g. <b>python3 -m http.server</b>.
+    Runs fully in your browser — no video leaves your machine. Hand tracking (MediaPipe
+    Hands) stays on the main thread; the <b>AnimeGANv2 (face_paint_v2)</b> ONNX model runs
+    inside a dedicated <b>Web Worker</b> via onnxruntime-web (WASM), so a slow inference pass
+    can no longer freeze the camera feed, hand tracking, or the UI. Honest caveat: this is a
+    real generative model, not a cheap filter — each stylized refresh can take real time on
+    a CPU (often multiple seconds per pass). The window's outline still tracks your hands
+    every frame in real time; the art inside it updates only as fast as the worker finishes
+    each pass, and the previous result stays visible while the next one renders. If the model
+    or camera fails to load in this sandbox, download the file and open it from a local
+    server, e.g. <b>python3 -m http.server</b>.
   </footer>
 
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.min.js" crossorigin="anonymous"></script>
 <script>
 (function(){
   const MODEL_URL = 'https://huggingface.co/akhaliq/AnimeGANv2-ONNX/resolve/main/face_paint_512_v2_0.onnx';
+  const ORT_BASE = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/';
+  const MODEL_SIZE = 512; // this ONNX export has a fixed [1,3,512,512] input shape
 
   const video = document.getElementById('video');
   const canvas = document.getElementById('canvas');
@@ -222,7 +217,6 @@
   const dotHandR = document.getElementById('dotHandR');
   const dotWindow = document.getElementById('dotWindow');
   const windowLabel = document.getElementById('windowLabel');
-  const MODEL_SIZE = 512; // this ONNX export has a fixed [1,3,512,512] input shape
 
   let W = canvas.width, H = canvas.height;
   let running = false;
@@ -232,12 +226,12 @@
   let lastFrameTime = performance.now();
   let fpsEMA = null;
 
-  let ortSession = null;
-  let ortInputName = null;
-  let ortOutputName = null;
-  let engineLabel = '--';
-  let processing = false;
-  let lastStyled = null;     // canvas holding the most recent stylized crop
+  let animeWorker = null;
+  let workerReady = false;
+  let workerBusy = false;
+  let inferReqId = 0;
+  let engineLabel = 'WASM (worker)';
+  let lastStyled = null;
   let lastInferMs = 0;
 
   let smoothPts = null;
@@ -253,7 +247,7 @@
     if(state) el.classList.add(state);
   }
 
-  // ---------- MediaPipe Hands ----------
+  // ---------- MediaPipe Hands (main thread — needs the DOM video element) ----------
   function initHandsModel(){
     handsModel = new Hands({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`
@@ -265,7 +259,75 @@
     handsModel.onResults((res) => { latestResults = res; });
   }
 
-  // ---------- AnimeGAN ONNX model ----------
+  // ---------- AnimeGAN inference worker ----------
+  // Runs entirely off the main thread: model load + every forward pass happen
+  // inside this worker, so a slow WASM inference can never freeze the camera
+  // feed, hand tracking, or the page's own rendering loop.
+  const WORKER_SOURCE = [
+    'let session = null, inputName = null, outputName = null;',
+    'function clamp255(v){ return v < 0 ? 0 : (v > 255 ? 255 : v); }',
+    'self.onmessage = async function(e){',
+    '  const msg = e.data;',
+    '  if(msg.type === "init"){',
+    '    try{',
+    '      importScripts(msg.ortUrl);',
+    '      ort.env.wasm.numThreads = 1;',
+    '      ort.env.wasm.wasmPaths = msg.ortBase;',
+    '      session = await ort.InferenceSession.create(msg.modelBuffer, { executionProviders: ["wasm"] });',
+    '      inputName = session.inputNames[0];',
+    '      outputName = session.outputNames[0];',
+    '      self.postMessage({ type: "ready" });',
+    '    }catch(err){',
+    '      self.postMessage({ type: "error", message: String((err && err.message) || err) });',
+    '    }',
+    '    return;',
+    '  }',
+    '  if(msg.type === "infer"){',
+    '    try{',
+    '      const { id, width, height, buffer } = msg;',
+    '      const data = new Uint8ClampedArray(buffer);',
+    '      const plane = width * height;',
+    '      const float = new Float32Array(3 * plane);',
+    '      for(let i = 0, p = 0; i < data.length; i += 4, p++){',
+    '        float[p]           = (data[i]     / 127.5) - 1;',
+    '        float[plane + p]   = (data[i + 1] / 127.5) - 1;',
+    '        float[2*plane + p] = (data[i + 2] / 127.5) - 1;',
+    '      }',
+    '      const tensor = new ort.Tensor("float32", float, [1, 3, height, width]);',
+    '      const feeds = {}; feeds[inputName] = tensor;',
+    '      const t0 = self.performance.now();',
+    '      const results = await session.run(feeds);',
+    '      const ms = self.performance.now() - t0;',
+    '      const out = results[outputName];',
+    '      const od = out.data;',
+    '      const oh = out.dims[2], ow = out.dims[3];',
+    '      const oplane = oh * ow;',
+    '      let mn = Infinity, mx = -Infinity;',
+    '      for(let i = 0; i < od.length; i += 37){ if(od[i] < mn) mn = od[i]; if(od[i] > mx) mx = od[i]; }',
+    '      let scale, offset;',
+    '      if(mn < -0.05){ scale = 127.5; offset = 127.5; }',
+    '      else if(mx <= 1.05){ scale = 255; offset = 0; }',
+    '      else { scale = 1; offset = 0; }',
+    '      const rgba = new Uint8ClampedArray(oplane * 4);',
+    '      for(let p = 0; p < oplane; p++){',
+    '        rgba[p*4]     = clamp255(od[p]           * scale + offset);',
+    '        rgba[p*4 + 1] = clamp255(od[oplane + p]   * scale + offset);',
+    '        rgba[p*4 + 2] = clamp255(od[2*oplane + p] * scale + offset);',
+    '        rgba[p*4 + 3] = 255;',
+    '      }',
+    '      self.postMessage({ type: "result", id, width: ow, height: oh, buffer: rgba.buffer, ms }, [rgba.buffer]);',
+    '    }catch(err){',
+    '      self.postMessage({ type: "error", id: msg.id, message: String((err && err.message) || err) });',
+    '    }',
+    '  }',
+    '};'
+  ].join('\n');
+
+  function createAnimeWorker(){
+    const blob = new Blob([WORKER_SOURCE], { type: 'application/javascript' });
+    return new Worker(URL.createObjectURL(blob));
+  }
+
   async function fetchModelBuffer(url, onProgress){
     const resp = await fetch(url);
     if(!resp.ok) throw new Error('Model download failed: HTTP ' + resp.status);
@@ -286,28 +348,66 @@
     return buf.buffer;
   }
 
-  async function loadAnimeGAN(){
-    ort.env.wasm.numThreads = 1;
-    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/';
+  function loadAnimeGAN(){
+    return new Promise(async (resolve, reject) => {
+      try{
+        setStatus('Downloading AnimeGANv2 model…');
+        modelProgress.classList.add('show');
+        const buf = await fetchModelBuffer(MODEL_URL, (p) => {
+          modelProgressBar.style.width = Math.round(p*100) + '%';
+          setStatus('Downloading AnimeGANv2 model… ' + Math.round(p*100) + '%');
+        });
 
-    setStatus('Downloading AnimeGANv2 model…');
-    modelProgress.classList.add('show');
-    const buf = await fetchModelBuffer(MODEL_URL, (p) => {
-      modelProgressBar.style.width = Math.round(p*100) + '%';
-      setStatus('Downloading AnimeGANv2 model… ' + Math.round(p*100) + '%');
+        setStatus('Starting inference worker…');
+        animeWorker = createAnimeWorker();
+        animeWorker.onmessage = (e) => handleWorkerMessage(e.data);
+        animeWorker.onerror = (e) => {
+          if(!workerReady) reject(new Error(e.message || 'Worker failed to start'));
+        };
+
+        const onReadyOnce = (data) => {
+          if(data.type === 'ready'){
+            workerReady = true;
+            modelProgress.classList.remove('show');
+            setStatus('');
+            resolve();
+          } else if(data.type === 'error'){
+            reject(new Error(data.message));
+          }
+        };
+        // Temporarily intercept the first message to resolve/reject this load.
+        const originalHandler = animeWorker.onmessage;
+        animeWorker.onmessage = (e) => {
+          onReadyOnce(e.data);
+          animeWorker.onmessage = (ev) => handleWorkerMessage(ev.data);
+        };
+
+        animeWorker.postMessage(
+          { type: 'init', modelBuffer: buf, ortUrl: ORT_BASE + 'ort.min.js', ortBase: ORT_BASE },
+          [buf]
+        );
+      }catch(err){
+        reject(err);
+      }
     });
+  }
 
-    setStatus('Initializing model…');
-    // NOTE: this model leans heavily on InstanceNormalization layers, which
-    // onnxruntime-web's WebGL backend does not run correctly for this graph
-    // (it throws mid-inference rather than at session-creation time). WASM
-    // is slower but actually produces correct output, so it's used directly.
-    ortSession = await ort.InferenceSession.create(buf, { executionProviders: ['wasm'] });
-    engineLabel = 'WASM (CPU)';
-    ortInputName = ortSession.inputNames[0];
-    ortOutputName = ortSession.outputNames[0];
-    modelProgress.classList.remove('show');
-    setStatus('');
+  function handleWorkerMessage(data){
+    if(data.type === 'result'){
+      const { width, height, buffer, ms } = data;
+      const arr = new Uint8ClampedArray(buffer);
+      const imgData = new ImageData(arr, width, height);
+      const c = document.createElement('canvas');
+      c.width = width; c.height = height;
+      c.getContext('2d').putImageData(imgData, 0, 0);
+      lastStyled = c;
+      lastInferMs = ms;
+      workerBusy = false;
+      setDot(dotWindow, smoothPts ? 'on' : '');
+    } else if(data.type === 'error'){
+      console.error('AnimeGAN worker error:', data.message);
+      workerBusy = false;
+    }
   }
 
   async function startCamera(){
@@ -344,7 +444,7 @@
     }
 
     try{
-      if(!ortSession) await loadAnimeGAN();
+      if(!workerReady) await loadAnimeGAN();
     }catch(err){
       modelProgress.classList.remove('show');
       showError('AnimeGANv2 model failed to load (' + (err && err.message ? err.message : err) +
@@ -372,7 +472,7 @@
     lastStyled = null;
   }
 
-  // ---------- main loop ----------
+  // ---------- main loop (runs every animation frame, never blocked by inference) ----------
   async function loop(){
     if(!running) return;
 
@@ -402,7 +502,8 @@
     if(pts){
       smoothPts = smoothPoints(smoothPts, pts);
       drawAnimeWindow(smoothPts);
-      setDot(dotWindow,'on'); windowLabel.textContent = 'WINDOW · LOCKED';
+      if(!workerBusy) setDot(dotWindow,'on');
+      windowLabel.textContent = 'WINDOW · LOCKED';
     } else {
       smoothPts = null;
       setDot(dotWindow,''); windowLabel.textContent = 'WINDOW';
@@ -456,73 +557,21 @@
     return pts.slice().sort((a,b) => Math.atan2(a.y-cy,a.x-cx) - Math.atan2(b.y-cy,b.x-cx));
   }
 
-  // ---------- AnimeGAN inference plumbing ----------
-  function clamp255(v){ return v<0?0:(v>255?255:v); }
-
-  function toTensor(srcCanvas, size){
-    const tmp = document.createElement('canvas');
-    tmp.width = size; tmp.height = size;
-    const tctx = tmp.getContext('2d');
-    tctx.drawImage(srcCanvas, 0, 0, size, size);
-    const { data } = tctx.getImageData(0, 0, size, size);
-    const plane = size*size;
-    const float = new Float32Array(3*plane);
-    for(let i=0, p=0; i<data.length; i+=4, p++){
-      float[p]         = (data[i]  /127.5) - 1;
-      float[plane+p]   = (data[i+1]/127.5) - 1;
-      float[2*plane+p] = (data[i+2]/127.5) - 1;
-    }
-    return new ort.Tensor('float32', float, [1,3,size,size]);
-  }
-
-  function tensorToCanvas(tensor){
-    const dims = tensor.dims; // [1,3,h,w]
-    const h = dims[2], w = dims[3];
-    const d = tensor.data;
-    const plane = h*w;
-
-    let mn = Infinity, mx = -Infinity;
-    for(let i=0;i<d.length;i+=37){ if(d[i]<mn) mn=d[i]; if(d[i]>mx) mx=d[i]; }
-    let scale, offset;
-    if(mn < -0.05){ scale = 127.5; offset = 127.5; }
-    else if(mx <= 1.05){ scale = 255; offset = 0; }
-    else { scale = 1; offset = 0; }
-
-    const out = document.createElement('canvas');
-    out.width = w; out.height = h;
-    const octx = out.getContext('2d');
-    const imgData = octx.createImageData(w, h);
-    const od = imgData.data;
-    for(let p=0; p<plane; p++){
-      od[p*4]   = clamp255(d[p]*scale + offset);
-      od[p*4+1] = clamp255(d[plane+p]*scale + offset);
-      od[p*4+2] = clamp255(d[2*plane+p]*scale + offset);
-      od[p*4+3] = 255;
-    }
-    octx.putImageData(imgData, 0, 0);
-    return out;
-  }
-
-  async function maybeInfer(cropCanvas){
-    if(processing || !ortSession) return;
-    processing = true;
+  // Fire off an inference request without blocking; ignored if the worker is
+  // still busy with a previous request (its result will simply arrive later).
+  function maybeInfer(procCanvas512){
+    if(workerBusy || !animeWorker || !workerReady) return;
+    workerBusy = true;
     setDot(dotWindow, 'busy');
-    const t0 = performance.now();
-    try{
-      const tensor = toTensor(cropCanvas, MODEL_SIZE);
-      const feeds = {}; feeds[ortInputName] = tensor;
-      const results = await ortSession.run(feeds);
-      lastStyled = tensorToCanvas(results[ortOutputName]);
-    }catch(e){
-      console.error('AnimeGAN inference failed:', e);
-    }
-    lastInferMs = performance.now() - t0;
-    processing = false;
+    const imgData = procCanvas512.getContext('2d').getImageData(0, 0, MODEL_SIZE, MODEL_SIZE);
+    const id = ++inferReqId;
+    animeWorker.postMessage(
+      { type: 'infer', id, width: MODEL_SIZE, height: MODEL_SIZE, buffer: imgData.data.buffer },
+      [imgData.data.buffer]
+    );
   }
 
   // ---------- compositing ----------
-  const CROP_CAP = 512;
-
   function drawAnimeWindow(rawPts){
     const ordered = orderAroundCentroid(rawPts);
 
@@ -536,17 +585,11 @@
     const bw = Math.max(4, maxX-minX), bh = Math.max(4, maxY-minY);
     if(bw < 12 || bh < 12) return;
 
-    const scale = Math.min(1, CROP_CAP / Math.max(bw,bh));
-    const cw = Math.max(2, Math.round(bw*scale));
-    const ch = Math.max(2, Math.round(bh*scale));
-    const crop = document.createElement('canvas');
-    crop.width = cw; crop.height = ch;
-    crop.getContext('2d').drawImage(mirroredFrame, minX, minY, bw, bh, 0, 0, cw, ch);
+    const proc = document.createElement('canvas');
+    proc.width = MODEL_SIZE; proc.height = MODEL_SIZE;
+    proc.getContext('2d').drawImage(mirroredFrame, minX, minY, bw, bh, 0, 0, MODEL_SIZE, MODEL_SIZE);
 
-    // Kick off (non-blocking) inference on this crop; draws whatever the most
-    // recent completed result is, so the window position always stays live
-    // even while a stylization pass is still running.
-    maybeInfer(crop);
+    maybeInfer(proc);
 
     ctx.save();
     ctx.beginPath();
@@ -558,7 +601,7 @@
     if(lastStyled){
       ctx.drawImage(lastStyled, minX, minY, bw, bh);
     } else {
-      ctx.drawImage(crop, minX, minY, bw, bh);
+      ctx.drawImage(proc, 0, 0, MODEL_SIZE, MODEL_SIZE, minX, minY, bw, bh);
     }
     ctx.restore();
 
@@ -607,6 +650,7 @@
 
   window.addEventListener('beforeunload', () => {
     if(stream) stream.getTracks().forEach(t => t.stop());
+    if(animeWorker) animeWorker.terminate();
   });
 })();
 </script>
