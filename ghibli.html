@@ -1,121 +1,619 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Production Ghibli-Style Live Camera</title>
-    <!-- Load TensorFlow.js core and the canvas/video layer API -->
-    <script src="https://jsdelivr.net"></script>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #11141a;
-            color: #e2e8f0;
-            text-align: center;
-            margin: 0;
-            padding: 20px;
-        }
-        h1 { color: #63b3ed; font-weight: 600; margin-bottom: 5px; }
-        p { color: #a0aec0; margin-top: 0; margin-bottom: 25px; }
-        .camera-box {
-            position: relative;
-            display: inline-block;
-        }
-        video { display: none; } /* Hide native camera */
-        canvas {
-            border: 4px solid #4a5568;
-            border-radius: 16px;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7);
-            background: #000;
-        }
-        #loader {
-            font-weight: bold;
-            color: #ecc94b;
-            margin-bottom: 15px;
-        }
-    </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Window · Live Hand-Frame AnimeGAN Filter</title>
+<style>
+  :root{
+    --bg:#0B0D10;
+    --panel:#14171C;
+    --panel-2:#1B1F26;
+    --line:#262B33;
+    --amber:#F2B33D;
+    --teal:#35C9C1;
+    --text:#F5F3EE;
+    --muted:#8B9099;
+    --danger:#E8555A;
+    --mono: ui-monospace, "JetBrains Mono", Menlo, Consolas, "SF Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  }
+  *{ box-sizing:border-box; }
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:var(--bg); color:var(--text);
+    font-family:var(--sans);
+    overflow:hidden;
+  }
+  .app{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    height:100%; width:100%; padding:18px; gap:14px;
+  }
+  header{ display:flex; align-items:baseline; gap:10px; width:100%; max-width:920px; }
+  header .mark{
+    font-family:var(--mono); font-size:12px; letter-spacing:.18em; color:var(--amber);
+    border:1px solid var(--amber); padding:3px 8px; border-radius:3px;
+  }
+  header h1{ font-size:16px; font-weight:600; margin:0; letter-spacing:.01em; color:var(--text); }
+  header .sub{ font-family:var(--mono); font-size:11px; color:var(--muted); margin-left:auto; text-align:right; }
+
+  .stage{
+    position:relative; width:100%; max-width:920px; aspect-ratio:4/3;
+    background:#000; border-radius:10px; overflow:hidden;
+    border:1px solid var(--line);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 30px 60px -20px rgba(0,0,0,.6);
+  }
+  video{ display:none; }
+  canvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+
+  .hud{
+    position:absolute; top:12px; left:12px; z-index:5;
+    font-family:var(--mono); font-size:11px; color:var(--amber);
+    display:flex; flex-direction:column; gap:4px;
+    pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.8);
+  }
+  .hud .row{ display:flex; align-items:center; gap:6px; }
+  .dot{ width:7px; height:7px; border-radius:50%; background:var(--muted); box-shadow:0 0 6px currentColor; }
+  .dot.on{ background:var(--teal); color:var(--teal); }
+  .dot.warn{ background:var(--danger); color:var(--danger); }
+  .dot.busy{ background:var(--amber); color:var(--amber); animation:pulse 1s ease-in-out infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
+
+  .hud-right{
+    position:absolute; top:12px; right:12px; z-index:5;
+    font-family:var(--mono); font-size:10.5px; color:var(--muted);
+    text-align:right; pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.8);
+    display:flex; flex-direction:column; gap:3px;
+  }
+  .hud-right b{ color:var(--teal); }
+
+  .corner{ position:absolute; width:22px; height:22px; z-index:5; pointer-events:none; border-color:var(--amber); opacity:.55; }
+  .corner.tl{ top:10px; left:10px; border-top:2px solid; border-left:2px solid; }
+  .corner.tr{ top:10px; right:10px; border-top:2px solid; border-right:2px solid; }
+  .corner.bl{ bottom:10px; left:10px; border-bottom:2px solid; border-left:2px solid; }
+  .corner.br{ bottom:10px; right:10px; border-bottom:2px solid; border-right:2px solid; }
+
+  .overlay{
+    position:absolute; inset:0; z-index:10;
+    display:flex; align-items:center; justify-content:center; text-align:center;
+    background:radial-gradient(120% 100% at 50% 0%, #1a1d22 0%, #0B0D10 70%);
+    padding:30px;
+  }
+  .overlay.hidden{ display:none; }
+  .overlay-inner{ max-width:500px; display:flex; flex-direction:column; align-items:center; gap:16px; }
+  .overlay-inner p{ margin:0; color:var(--muted); font-size:13.5px; line-height:1.6; }
+  .overlay-inner .glyph{ font-size:34px; }
+  .btn{
+    font-family:var(--mono); font-size:12.5px; letter-spacing:.05em;
+    background:var(--amber); color:#1a1204; border:none; padding:11px 20px;
+    border-radius:6px; cursor:pointer; font-weight:700; text-transform:uppercase;
+    transition:transform .12s ease, box-shadow .12s ease;
+  }
+  .btn:hover{ transform:translateY(-1px); box-shadow:0 6px 18px -6px rgba(242,179,61,.55); }
+  .btn:active{ transform:translateY(0); }
+  .btn.ghost{ background:transparent; color:var(--text); border:1px solid var(--line); }
+  .btn.ghost:hover{ border-color:var(--amber); box-shadow:none; }
+  .btn:disabled{ opacity:.4; cursor:default; transform:none; box-shadow:none; }
+
+  .progress{
+    width:100%; max-width:280px; height:6px; border-radius:4px; background:var(--panel-2);
+    overflow:hidden; border:1px solid var(--line); display:none;
+  }
+  .progress.show{ display:block; }
+  .progress > div{ height:100%; width:0%; background:var(--amber); transition:width .15s ease; }
+  .status{ font-family:var(--mono); font-size:11.5px; color:var(--teal); min-height:16px; }
+  .err{ color:var(--danger); font-family:var(--mono); font-size:12px; max-width:460px; }
+
+  .controls{
+    width:100%; max-width:920px; display:flex; align-items:center; gap:16px;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:12px 16px; flex-wrap:wrap;
+  }
+  .controls .group{ display:flex; align-items:center; gap:8px; }
+  .controls label{ font-family:var(--mono); font-size:10.5px; color:var(--muted); letter-spacing:.06em; text-transform:uppercase; }
+  select{
+    font-family:var(--mono); font-size:11.5px; background:var(--panel-2); color:var(--text);
+    border:1px solid var(--line); border-radius:5px; padding:6px 8px;
+  }
+  .spacer{ flex:1; }
+  .controls .btn{ padding:9px 14px; font-size:11.5px; }
+
+  footer{ width:100%; max-width:920px; font-family:var(--mono); font-size:10.5px; color:var(--muted); line-height:1.6; }
+  footer b{ color:var(--text); }
+  footer a{ color:var(--teal); }
+</style>
 </head>
 <body>
+<div class="app">
 
-    <h1>Ghibli Cinematic AI Camera</h1>
-    <p>Real-time machine learning via TensorFlow.js</p>
-    <div id="loader">Initializing TensorFlow & Downloading Ghibli Weights...</div>
-    
-    <div class="camera-box">
-        <!-- Input frame constraints locked to 256x256 for fast mobile/desktop performance -->
-        <video id="webcam" autoplay playsinline width="256" height="256"></video>
-        <canvas id="outputCanvas" width="256" height="256"></canvas>
+  <header>
+    <span class="mark">WINDOW</span>
+    <h1>Hand-Frame AnimeGAN Viewfinder</h1>
+    <span class="sub" id="fpsReadout">-- fps<br>engine: --</span>
+  </header>
+
+  <div class="stage" id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="canvas" width="960" height="720"></canvas>
+
+    <div class="hud">
+      <div class="row"><span class="dot" id="dotCam"></span><span>CAMERA</span></div>
+      <div class="row"><span class="dot" id="dotHandL"></span><span>HAND A</span></div>
+      <div class="row"><span class="dot" id="dotHandR"></span><span>HAND B</span></div>
+      <div class="row"><span class="dot" id="dotWindow"></span><span id="windowLabel">WINDOW</span></div>
+    </div>
+    <div class="hud-right" id="hudRight">
+      <div>infer: <b id="inferMs">--</b> ms</div>
+      <div id="modelTag">AnimeGANv2 · face_paint_v2</div>
     </div>
 
-    <script>
-        const video = document.getElementById('webcam');
-        const canvas = document.getElementById('outputCanvas');
-        const ctx = canvas.getContext('2d');
-        const loader = document.getElementById('loader');
-        
-        let animeModel;
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
 
-        // Publicly mirrored web-quantized version of AnimeGANv2 (Miyazaki/Ghibli weights)
-        const MODEL_URL = 'https://githubusercontent.com some-repo-mirror/master/ghibli_tfjs_model/model.json'; 
-        // Note: For your production app, host the converted tfjs layers folder on your own CDN/Server.
+    <div class="overlay" id="overlay">
+      <div class="overlay-inner">
+        <div class="glyph">🖐️ 🪟 🖐️</div>
+        <p id="overlayText">
+          Bring the thumb and index finger of <b>each</b> hand up in front of the camera, like
+          you're framing a photo. The four fingertips form a window — everything inside it is run
+          live through the real <b>AnimeGANv2</b> neural network and rendered as actual anime-style
+          art; everything outside stays the real camera feed.
+        </p>
+        <button class="btn" id="startBtn">Start camera</button>
+        <div class="progress" id="modelProgress"><div id="modelProgressBar"></div></div>
+        <div class="status" id="statusText"></div>
+        <div class="err" id="errText" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
 
-        async function setupApplication() {
-            try {
-                // 1. Force TensorFlow.js to utilize WebGL for hardware graphics acceleration
-                await tf.setBackend('webgl');
-                console.log("Using TF Backend:", tf.getBackend());
+  <div class="controls" id="controls" style="display:none;">
+    <div class="group">
+      <label>Quality</label>
+      <select id="qualitySelect">
+        <option value="128">Fast (128px)</option>
+        <option value="224" selected>Balanced (224px)</option>
+        <option value="320">Detailed (320px)</option>
+        <option value="512">Native (512px)</option>
+      </select>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="snapBtn">Save frame</button>
+    <button class="btn ghost" id="stopBtn">Stop</button>
+  </div>
 
-                // 2. Load the lightweight neural network
-                animeModel = await tf.loadLayersModel(MODEL_URL);
-                loader.innerText = "Requesting real-time camera privileges...";
+  <footer>
+    Runs fully in your browser — no video leaves your machine. Hand tracking is
+    <b>MediaPipe Hands</b>; the cartoon window is the real
+    <b>AnimeGANv2 (face_paint_v2)</b> ONNX model, run on-device with
+    <b>onnxruntime-web</b> (WebGL if your GPU supports it, otherwise WASM on the CPU).
+    Both are fetched from a CDN / Hugging Face on start, so this needs an internet
+    connection the first time. Honest caveat: a real neural style-transfer model is much
+    heavier than a canvas filter — the window's <i>position</i> tracks your hands every
+    frame, but the <i>stylized pixels</i> only refresh as fast as your device can run the
+    model (fast GPUs: a few frames per second; CPU-only WASM: noticeably slower). Lower the
+    Quality setting if it feels laggy. If the model or camera fails to load in this sandbox,
+    download the file and open it from a local server, e.g. <b>python3 -m http.server</b>.
+  </footer>
 
-                // 3. Connect to user's camera feed
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { width: 256, height: 256, facingMode: "user" }
-                });
-                video.srcObject = stream;
-                
-                video.addEventListener('loadeddata', () => {
-                    loader.style.display = 'none'; // Neural network ready
-                    renderLoop();
-                });
-            } catch (error) {
-                console.error(error);
-                loader.innerText = "Error: System failed to execute WebGL or load model layers.";
-                loader.style.color = "#f56565";
-            }
-        }
+</div>
 
-        function renderLoop() {
-            if (video.paused || video.ended) return;
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.min.js" crossorigin="anonymous"></script>
+<script>
+(function(){
+  const MODEL_URL = 'https://huggingface.co/akhaliq/AnimeGANv2-ONNX/resolve/main/face_paint_512_v2_0.onnx';
 
-            // Use tf.tidy() to automatically flush graphics memory tensors and protect against memory leaks
-            tf.tidy(() => {
-                // 1. Convert live HTML5 Video element directly into a TensorFlow Tensor Matrix
-                const rawTensor = tf.browser.fromPixels(video);
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const overlay = document.getElementById('overlay');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const snapBtn = document.getElementById('snapBtn');
+  const controls = document.getElementById('controls');
+  const errText = document.getElementById('errText');
+  const statusText = document.getElementById('statusText');
+  const modelProgress = document.getElementById('modelProgress');
+  const modelProgressBar = document.getElementById('modelProgressBar');
+  const fpsReadout = document.getElementById('fpsReadout');
+  const inferMsEl = document.getElementById('inferMs');
+  const dotCam = document.getElementById('dotCam');
+  const dotHandL = document.getElementById('dotHandL');
+  const dotHandR = document.getElementById('dotHandR');
+  const dotWindow = document.getElementById('dotWindow');
+  const windowLabel = document.getElementById('windowLabel');
+  const qualitySelect = document.getElementById('qualitySelect');
 
-                // 2. Preprocess: Resize and scale array integers [0, 255] to float standards [-1, 1]
-                const resized = tf.image.resizeBilinear(rawTensor, [256, 256]);
-                const normalized = resized.toFloat().div(127.5).sub(1.0);
-                const inputBatch = normalized.expandDims(0); // Add batch dimension [1, 256, 256, 3]
+  let W = canvas.width, H = canvas.height;
+  let running = false;
+  let handsModel = null;
+  let stream = null;
+  let latestResults = null;
+  let lastFrameTime = performance.now();
+  let fpsEMA = null;
 
-                // 3. Execute Model Prediction (Inference Phase)
-                const prediction = animeModel.predict(inputBatch);
+  let ortSession = null;
+  let ortInputName = null;
+  let ortOutputName = null;
+  let engineLabel = '--';
+  let processing = false;
+  let lastStyled = null;     // canvas holding the most recent stylized crop
+  let lastInferMs = 0;
 
-                // 4. Postprocess: Squeeze dimensions, revert float ranges back to [0, 255], convert to integers
-                const squeezed = prediction.squeeze([0]);
-                const denormalized = squeezed.add(1.0).mul(127.5).clipByValue(0, 255).toInt();
+  let smoothPts = null;
 
-                // 5. Draw the resulting tensor matrix straight onto the target HTML canvas screen
-                tf.browser.toPixels(denormalized, canvas);
-            });
+  const mirroredFrame = document.createElement('canvas');
+  mirroredFrame.width = W; mirroredFrame.height = H;
+  const mfCtx = mirroredFrame.getContext('2d');
 
-            // Call recursively for continuous high-framerate video stream processing
-            requestAnimationFrame(renderLoop);
-        }
+  function showError(msg){ errText.style.display = 'block'; errText.textContent = msg; }
+  function setStatus(msg){ statusText.textContent = msg; }
+  function setDot(el, state){
+    el.classList.remove('on','warn','busy');
+    if(state) el.classList.add(state);
+  }
 
-        // Initialize script logic
-        setupApplication();
-    </script>
+  // ---------- MediaPipe Hands ----------
+  function initHandsModel(){
+    handsModel = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`
+    });
+    handsModel.setOptions({
+      maxNumHands: 2, modelComplexity: 1,
+      minDetectionConfidence: 0.6, minTrackingConfidence: 0.6
+    });
+    handsModel.onResults((res) => { latestResults = res; });
+  }
+
+  // ---------- AnimeGAN ONNX model ----------
+  async function fetchModelBuffer(url, onProgress){
+    const resp = await fetch(url);
+    if(!resp.ok) throw new Error('Model download failed: HTTP ' + resp.status);
+    const total = parseInt(resp.headers.get('content-length') || '0', 10);
+    const reader = resp.body.getReader();
+    let received = 0;
+    const chunks = [];
+    while(true){
+      const { done, value } = await reader.read();
+      if(done) break;
+      chunks.push(value);
+      received += value.length;
+      if(total) onProgress(received/total);
+    }
+    const buf = new Uint8Array(received);
+    let offset = 0;
+    for(const c of chunks){ buf.set(c, offset); offset += c.length; }
+    return buf.buffer;
+  }
+
+  async function loadAnimeGAN(){
+    ort.env.wasm.numThreads = 1;
+    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/';
+
+    setStatus('Downloading AnimeGANv2 model…');
+    modelProgress.classList.add('show');
+    const buf = await fetchModelBuffer(MODEL_URL, (p) => {
+      modelProgressBar.style.width = Math.round(p*100) + '%';
+      setStatus('Downloading AnimeGANv2 model… ' + Math.round(p*100) + '%');
+    });
+
+    setStatus('Initializing model…');
+    try{
+      ortSession = await ort.InferenceSession.create(buf, { executionProviders: ['webgl','wasm'] });
+      engineLabel = 'WebGL/WASM';
+    }catch(e){
+      ortSession = await ort.InferenceSession.create(buf, { executionProviders: ['wasm'] });
+      engineLabel = 'WASM (CPU)';
+    }
+    ortInputName = ortSession.inputNames[0];
+    ortOutputName = ortSession.outputNames[0];
+    modelProgress.classList.remove('show');
+    setStatus('');
+  }
+
+  async function startCamera(){
+    errText.style.display = 'none';
+    startBtn.disabled = true;
+    startBtn.textContent = 'Starting…';
+    try{
+      setStatus('Requesting camera…');
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 960 }, height: { ideal: 720 } },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+      W = canvas.width = video.videoWidth || 960;
+      H = canvas.height = video.videoHeight || 720;
+      mirroredFrame.width = W; mirroredFrame.height = H;
+      setDot(dotCam, 'on');
+    }catch(err){
+      setDot(dotCam, 'warn');
+      showError('Could not access the camera: ' + (err && err.message ? err.message : err) +
+        '. Check that this page has camera permission and no other app is using the camera.');
+      startBtn.disabled = false; startBtn.textContent = 'Start camera'; setStatus('');
+      return;
+    }
+
+    try{
+      if(!handsModel) initHandsModel();
+    }catch(err){
+      showError('Hand-tracking model failed to load from the CDN. This sandbox may be blocking the ' +
+        'network request — download this HTML file and open it from a local server instead.');
+      startBtn.disabled = false; startBtn.textContent = 'Start camera'; setStatus('');
+      return;
+    }
+
+    try{
+      if(!ortSession) await loadAnimeGAN();
+    }catch(err){
+      modelProgress.classList.remove('show');
+      showError('AnimeGANv2 model failed to load (' + (err && err.message ? err.message : err) +
+        '). This sandbox may be blocking the request to Hugging Face — download this HTML file ' +
+        'and open it from a local server instead.');
+      startBtn.disabled = false; startBtn.textContent = 'Start camera'; setStatus('');
+      return;
+    }
+
+    fpsReadout.innerHTML = '-- fps<br>engine: ' + engineLabel;
+    overlay.classList.add('hidden');
+    controls.style.display = 'flex';
+    running = true;
+    requestAnimationFrame(loop);
+  }
+
+  function stopCamera(){
+    running = false;
+    if(stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
+    overlay.classList.remove('hidden');
+    controls.style.display = 'none';
+    startBtn.disabled = false; startBtn.textContent = 'Start camera'; setStatus('');
+    setDot(dotCam,''); setDot(dotHandL,''); setDot(dotHandR,''); setDot(dotWindow,'');
+    windowLabel.textContent = 'WINDOW';
+    lastStyled = null;
+  }
+
+  // ---------- main loop ----------
+  async function loop(){
+    if(!running) return;
+
+    const now = performance.now();
+    const dt = now - lastFrameTime;
+    lastFrameTime = now;
+    const instFps = 1000/Math.max(dt,1);
+    fpsEMA = fpsEMA === null ? instFps : fpsEMA*0.9 + instFps*0.1;
+    fpsReadout.innerHTML = Math.round(fpsEMA) + ' fps<br>engine: ' + engineLabel;
+    inferMsEl.textContent = lastInferMs ? Math.round(lastInferMs) : '--';
+
+    if(video.readyState >= 2 && handsModel){
+      try{ await handsModel.send({ image: video }); }catch(e){ /* transient */ }
+    }
+
+    mfCtx.save();
+    mfCtx.translate(W,0); mfCtx.scale(-1,1);
+    mfCtx.drawImage(video, 0, 0, W, H);
+    mfCtx.restore();
+
+    ctx.clearRect(0,0,W,H);
+    ctx.drawImage(mirroredFrame, 0, 0);
+
+    const pts = extractWindowPoints(latestResults);
+    updateHandDots(latestResults);
+
+    if(pts){
+      smoothPts = smoothPoints(smoothPts, pts);
+      drawAnimeWindow(smoothPts);
+      setDot(dotWindow,'on'); windowLabel.textContent = 'WINDOW · LOCKED';
+    } else {
+      smoothPts = null;
+      setDot(dotWindow,''); windowLabel.textContent = 'WINDOW';
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  function updateHandDots(res){
+    const n = (res && res.multiHandLandmarks) ? res.multiHandLandmarks.length : 0;
+    setDot(dotHandL, n >= 1 ? 'on' : '');
+    setDot(dotHandR, n >= 2 ? 'on' : '');
+  }
+
+  function extractWindowPoints(res){
+    if(!res || !res.multiHandLandmarks || res.multiHandLandmarks.length < 2) return null;
+    const pts = [];
+    for(let h=0; h<2; h++){
+      const lm = res.multiHandLandmarks[h];
+      const thumb = lm[4], index = lm[8];
+      pts.push({ x: (1-thumb.x)*W, y: thumb.y*H });
+      pts.push({ x: (1-index.x)*W, y: index.y*H });
+    }
+    return pts;
+  }
+
+  function smoothPoints(prev, raw){
+    const alpha = 0.45;
+    if(!prev || prev.length !== raw.length) return raw.map(p => ({x:p.x, y:p.y}));
+    const used = new Array(raw.length).fill(false);
+    const out = new Array(prev.length);
+    for(let i=0;i<prev.length;i++){
+      let best = -1, bestD = Infinity;
+      for(let j=0;j<raw.length;j++){
+        if(used[j]) continue;
+        const d = (prev[i].x-raw[j].x)**2 + (prev[i].y-raw[j].y)**2;
+        if(d < bestD){ bestD = d; best = j; }
+      }
+      used[best] = true;
+      out[i] = {
+        x: prev[i].x + (raw[best].x - prev[i].x)*alpha,
+        y: prev[i].y + (raw[best].y - prev[i].y)*alpha
+      };
+    }
+    return out;
+  }
+
+  function orderAroundCentroid(pts){
+    const cx = pts.reduce((s,p)=>s+p.x,0)/pts.length;
+    const cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
+    return pts.slice().sort((a,b) => Math.atan2(a.y-cy,a.x-cx) - Math.atan2(b.y-cy,b.x-cx));
+  }
+
+  // ---------- AnimeGAN inference plumbing ----------
+  function clamp255(v){ return v<0?0:(v>255?255:v); }
+
+  function toTensor(srcCanvas, size){
+    const tmp = document.createElement('canvas');
+    tmp.width = size; tmp.height = size;
+    const tctx = tmp.getContext('2d');
+    tctx.drawImage(srcCanvas, 0, 0, size, size);
+    const { data } = tctx.getImageData(0, 0, size, size);
+    const plane = size*size;
+    const float = new Float32Array(3*plane);
+    for(let i=0, p=0; i<data.length; i+=4, p++){
+      float[p]         = (data[i]  /127.5) - 1;
+      float[plane+p]   = (data[i+1]/127.5) - 1;
+      float[2*plane+p] = (data[i+2]/127.5) - 1;
+    }
+    return new ort.Tensor('float32', float, [1,3,size,size]);
+  }
+
+  function tensorToCanvas(tensor){
+    const dims = tensor.dims; // [1,3,h,w]
+    const h = dims[2], w = dims[3];
+    const d = tensor.data;
+    const plane = h*w;
+
+    let mn = Infinity, mx = -Infinity;
+    for(let i=0;i<d.length;i+=37){ if(d[i]<mn) mn=d[i]; if(d[i]>mx) mx=d[i]; }
+    let scale, offset;
+    if(mn < -0.05){ scale = 127.5; offset = 127.5; }
+    else if(mx <= 1.05){ scale = 255; offset = 0; }
+    else { scale = 1; offset = 0; }
+
+    const out = document.createElement('canvas');
+    out.width = w; out.height = h;
+    const octx = out.getContext('2d');
+    const imgData = octx.createImageData(w, h);
+    const od = imgData.data;
+    for(let p=0; p<plane; p++){
+      od[p*4]   = clamp255(d[p]*scale + offset);
+      od[p*4+1] = clamp255(d[plane+p]*scale + offset);
+      od[p*4+2] = clamp255(d[2*plane+p]*scale + offset);
+      od[p*4+3] = 255;
+    }
+    octx.putImageData(imgData, 0, 0);
+    return out;
+  }
+
+  async function maybeInfer(cropCanvas){
+    if(processing || !ortSession) return;
+    processing = true;
+    setDot(dotWindow, 'busy');
+    const t0 = performance.now();
+    try{
+      const size = parseInt(qualitySelect.value, 10);
+      const tensor = toTensor(cropCanvas, size);
+      const feeds = {}; feeds[ortInputName] = tensor;
+      const results = await ortSession.run(feeds);
+      lastStyled = tensorToCanvas(results[ortOutputName]);
+    }catch(e){
+      console.error('AnimeGAN inference failed:', e);
+    }
+    lastInferMs = performance.now() - t0;
+    processing = false;
+  }
+
+  // ---------- compositing ----------
+  const CROP_CAP = 512;
+
+  function drawAnimeWindow(rawPts){
+    const ordered = orderAroundCentroid(rawPts);
+
+    let minX = Math.min(...ordered.map(p=>p.x));
+    let maxX = Math.max(...ordered.map(p=>p.x));
+    let minY = Math.min(...ordered.map(p=>p.y));
+    let maxY = Math.max(...ordered.map(p=>p.y));
+    const pad = 6;
+    minX = Math.max(0, minX-pad); minY = Math.max(0, minY-pad);
+    maxX = Math.min(W, maxX+pad); maxY = Math.min(H, maxY+pad);
+    const bw = Math.max(4, maxX-minX), bh = Math.max(4, maxY-minY);
+    if(bw < 12 || bh < 12) return;
+
+    const scale = Math.min(1, CROP_CAP / Math.max(bw,bh));
+    const cw = Math.max(2, Math.round(bw*scale));
+    const ch = Math.max(2, Math.round(bh*scale));
+    const crop = document.createElement('canvas');
+    crop.width = cw; crop.height = ch;
+    crop.getContext('2d').drawImage(mirroredFrame, minX, minY, bw, bh, 0, 0, cw, ch);
+
+    // Kick off (non-blocking) inference on this crop; draws whatever the most
+    // recent completed result is, so the window position always stays live
+    // even while a stylization pass is still running.
+    maybeInfer(crop);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(ordered[0].x, ordered[0].y);
+    for(let i=1;i<ordered.length;i++) ctx.lineTo(ordered[i].x, ordered[i].y);
+    ctx.closePath();
+    ctx.clip();
+    ctx.imageSmoothingEnabled = true;
+    if(lastStyled){
+      ctx.drawImage(lastStyled, minX, minY, bw, bh);
+    } else {
+      ctx.drawImage(crop, minX, minY, bw, bh);
+    }
+    ctx.restore();
+
+    drawHud(ordered);
+  }
+
+  function drawHud(orderedPts){
+    ctx.save();
+    ctx.lineJoin = 'round';
+    const t = performance.now()/1000;
+    ctx.beginPath();
+    ctx.moveTo(orderedPts[0].x, orderedPts[0].y);
+    for(let i=1;i<orderedPts.length;i++) ctx.lineTo(orderedPts[i].x, orderedPts[i].y);
+    ctx.closePath();
+    ctx.setLineDash([10,7]);
+    ctx.lineDashOffset = -t*18;
+    ctx.strokeStyle = 'rgba(242,179,61,0.85)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    orderedPts.forEach((p) => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 5, 0, Math.PI*2);
+      ctx.strokeStyle = 'rgba(53,201,193,0.95)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 1.6, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(53,201,193,0.95)';
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
+  function snapshot(){
+    const link = document.createElement('a');
+    link.download = 'anime-window-' + Date.now() + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }
+
+  startBtn.addEventListener('click', startCamera);
+  stopBtn.addEventListener('click', stopCamera);
+  snapBtn.addEventListener('click', snapshot);
+
+  window.addEventListener('beforeunload', () => {
+    if(stream) stream.getTracks().forEach(t => t.stop());
+  });
+})();
+</script>
 </body>
 </html>
