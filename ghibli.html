@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Window11 · Live Hand-Frame AnimeGAN Filter</title>
+<title>Window · Live Hand-Frame AnimeGAN Filter</title>
 <style>
   :root{
     --bg:#0B0D10;
@@ -113,6 +113,15 @@
   .controls label{ font-family:var(--mono); font-size:10.5px; color:var(--muted); letter-spacing:.06em; text-transform:uppercase; }
   .spacer{ flex:1; }
   .controls .btn{ padding:9px 14px; font-size:11.5px; }
+  select.btn{
+    appearance:none; -webkit-appearance:none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 14px) center, calc(100% - 9px) center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right:28px;
+  }
+  select.btn option{ background:var(--panel); color:var(--text); }
 
   footer{ width:100%; max-width:920px; font-family:var(--mono); font-size:10.5px; color:var(--muted); line-height:1.6; }
   footer b{ color:var(--text); }
@@ -139,7 +148,7 @@
     </div>
     <div class="hud-right" id="hudRight">
       <div>infer: <b id="inferMs">--</b> ms</div>
-      <div id="modelTag">AnimeGANv2 · face_paint_v2</div>
+      <div id="modelTag">AnimeGANv3</div>
       <div id="workerTag">worker: off-main-thread</div>
     </div>
 
@@ -154,9 +163,9 @@
         <p id="overlayText">
           Bring the thumb and index finger of <b>each</b> hand up in front of the camera, like
           you're framing a photo. The four fingertips form a window — everything inside it is run
-          live through the real <b>AnimeGANv2</b> neural network (in a background Web Worker, so
+          live through the real <b>AnimeGANv3</b> neural network (in a background Web Worker, so
           the page never freezes) and rendered as actual anime-style art; everything outside stays
-          the real camera feed.
+          the real camera feed. Pick a style from the dropdown once the camera's running.
         </p>
         <button class="btn" id="startBtn">Start camera</button>
         <div class="progress" id="modelProgress"><div id="modelProgressBar"></div></div>
@@ -168,8 +177,12 @@
 
   <div class="controls" id="controls" style="display:none;">
     <div class="group">
+      <label>Style</label>
+      <select id="styleSelect" class="btn ghost" style="cursor:pointer;"></select>
+    </div>
+    <div class="group">
       <label>Model input</label>
-      <span style="font-family:var(--mono); font-size:11.5px;">512×512 (fixed)</span>
+      <span style="font-family:var(--mono); font-size:11.5px;">512×512</span>
     </div>
     <div class="spacer"></div>
     <button class="btn ghost" id="snapBtn">Save frame</button>
@@ -178,18 +191,21 @@
 
   <footer>
     Runs fully in your browser — no video leaves your machine. Hand tracking (MediaPipe
-    Hands) stays on the main thread; the <b>AnimeGANv2 (face_paint_v2)</b> ONNX model runs
-    inside a dedicated <b>Web Worker</b> via onnxruntime-web (WASM, multi-threaded when the
-    browser allows it), so a slow inference pass can no longer freeze the camera feed, hand
+    Hands) stays on the main thread; the <b>AnimeGANv3</b> ONNX model runs inside a
+    dedicated <b>Web Worker</b> via onnxruntime-web (WASM, multi-threaded when the browser
+    allows it), so a slow inference pass can no longer freeze the camera feed, hand
     tracking, or the UI — and the worker fires the next pass the instant the previous one
-    lands, with no idle gap in between. The window's outline tracks your hands every single
-    frame. For the art inside it: a cheap instant preview renders every frame so the window
-    is never static, real AnimeGAN results crossfade in smoothly instead of popping, and a
-    faint live shimmer keeps the window visibly moving between GAN passes. Honest caveat:
-    this is still a real generative model, not a cheap filter, so the crisp "true" restyle
-    only refreshes as fast as the worker can finish a pass (typically under a second on GPU
-    threading, longer on constrained/single-thread CPUs) — the layers above are what make
-    that feel continuous rather than frozen. If the model or camera fails to load in this
+    lands, with no idle gap in between. Switch styles any time with the dropdown once the
+    camera's running; each style's weights are cached in the worker after their first
+    download, so switching back to one you've already used is instant, and the window
+    keeps rendering with the old style while a new one loads in the background. Note: v3
+    also has USA/Disney/Arcane/Kpop/Trump/JP_face demo styles, but those only exist bundled
+    inside the official Gradio demo's own inference code with no standalone .onnx file to
+    download — so they aren't in the list rather than pointing at a link that would 404.
+    The window's outline tracks your hands every single frame; for the art inside it, a
+    cheap instant preview renders every frame so it's never static, real AnimeGAN results
+    crossfade in smoothly instead of popping, and a faint live shimmer keeps the window
+    visibly moving between GAN passes. If the model or camera fails to load in this
     sandbox, download the file and open it from a local server, e.g.
     <b>python3 -m http.server</b>.
   </footer>
@@ -199,9 +215,22 @@
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js" crossorigin="anonymous"></script>
 <script>
 (function(){
-  const MODEL_URL = 'https://huggingface.co/akhaliq/AnimeGANv2-ONNX/resolve/main/face_paint_512_v2_0.onnx';
+  // Real AnimeGANv3 (TachibanaYoshino) ONNX weights — not v2. "face_paint" was a
+  // v2-only style name; v3's public, directly-downloadable weights are these three.
+  // (v3 also has USA/Disney/Arcane/Kpop/Trump/JP_face demo styles, but those are only
+  // bundled inside a Gradio Space's private inference code with no standalone .onnx
+  // URL to fetch from a browser — so they're left out rather than pointing at a link
+  // that would just 404.)
+  const STYLES = [
+    { id: 'hayao',   label: 'Hayao (Miyazaki-style landscape)',
+      url: 'https://github.com/TachibanaYoshino/AnimeGANv3/releases/download/v1.1.0/AnimeGANv3_Hayao_36.onnx' },
+    { id: 'shinkai', label: 'Shinkai (Makoto Shinkai-style landscape)',
+      url: 'https://github.com/TachibanaYoshino/AnimeGANv3/releases/download/v1.1.0/AnimeGANv3_Shinkai_37.onnx' },
+    { id: 'sketch',  label: 'Portrait Sketch (face-focused)',
+      url: 'https://huggingface.co/public-data/AnimeGANv3-portrait-sketch/resolve/main/AnimeGANv3_PortraitSketch_25.onnx' }
+  ];
   const ORT_BASE = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/';
-  const MODEL_SIZE = 512; // this ONNX export has a fixed [1,3,512,512] input shape
+  const MODEL_SIZE = 512; // 512 = 16×32, a valid input size for every style above
 
   const video = document.getElementById('video');
   const canvas = document.getElementById('canvas');
@@ -222,6 +251,8 @@
   const dotHandR = document.getElementById('dotHandR');
   const dotWindow = document.getElementById('dotWindow');
   const windowLabel = document.getElementById('windowLabel');
+  const styleSelect = document.getElementById('styleSelect');
+  const modelTag = document.getElementById('modelTag');
 
   let W = canvas.width, H = canvas.height;
   let running = false;
@@ -232,10 +263,13 @@
   let fpsEMA = null;
 
   let animeWorker = null;
-  let workerReady = false;
+  let workerReady = false;   // true once at least one style has finished loading
   let workerBusy = false;
   let inferReqId = 0;
   let engineLabel = 'WASM (worker)';
+  let activeStyle = STYLES[0].id;
+  const loadedStyles = new Set();   // style ids whose ONNX session already lives in the worker
+  let switchingStyle = false;       // true while downloading/loading a not-yet-cached style
   let lastStyled = null;
   let crossfadeFrom = null;   // previous GAN frame, used to blend into a fresh result smoothly
   let crossfadeStart = 0;
@@ -272,32 +306,42 @@
   // inside this worker, so a slow WASM inference can never freeze the camera
   // feed, hand tracking, or the page's own rendering loop.
   const WORKER_SOURCE = [
-    'let session = null, inputName = null, outputName = null;',
+    'const sessions = {};   // styleId -> { session, inputName, outputName }',
+    'let activeStyle = null;',
     'function clamp255(v){ return v < 0 ? 0 : (v > 255 ? 255 : v); }',
     'self.onmessage = async function(e){',
     '  const msg = e.data;',
-    '  if(msg.type === "init"){',
+    '  if(msg.type === "load"){',
     '    try{',
-    '      importScripts(msg.ortUrl);',
-    '      ort.env.wasm.wasmPaths = msg.ortBase;',
-    '      const canThread = (typeof SharedArrayBuffer !== "undefined") && self.crossOriginIsolated;',
-    '      ort.env.wasm.numThreads = canThread ? Math.max(1, Math.min(4, self.navigator.hardwareConcurrency || 4)) : 1;',
+    '      if(!self.ort){',
+    '        importScripts(msg.ortUrl);',
+    '        ort.env.wasm.wasmPaths = msg.ortBase;',
+    '        const canThread = (typeof SharedArrayBuffer !== "undefined") && self.crossOriginIsolated;',
+    '        ort.env.wasm.numThreads = canThread ? Math.max(1, Math.min(4, self.navigator.hardwareConcurrency || 4)) : 1;',
+    '      }',
+    '      let session;',
     '      try{',
     '        session = await ort.InferenceSession.create(msg.modelBuffer, { executionProviders: ["wasm"] });',
     '      }catch(threadErr){',
     '        ort.env.wasm.numThreads = 1;',
     '        session = await ort.InferenceSession.create(msg.modelBuffer, { executionProviders: ["wasm"] });',
     '      }',
-    '      inputName = session.inputNames[0];',
-    '      outputName = session.outputNames[0];',
-    '      self.postMessage({ type: "ready" });',
+    '      sessions[msg.style] = { session, inputName: session.inputNames[0], outputName: session.outputNames[0] };',
+    '      if(!activeStyle) activeStyle = msg.style;',
+    '      self.postMessage({ type: "loaded", style: msg.style });',
     '    }catch(err){',
-    '      self.postMessage({ type: "error", message: String((err && err.message) || err) });',
+    '      self.postMessage({ type: "error", style: msg.style, message: String((err && err.message) || err) });',
     '    }',
+    '    return;',
+    '  }',
+    '  if(msg.type === "activate"){',
+    '    if(sessions[msg.style]) activeStyle = msg.style;',
     '    return;',
     '  }',
     '  if(msg.type === "infer"){',
     '    try{',
+    '      const entry = sessions[activeStyle];',
+    '      if(!entry) throw new Error("No style loaded yet");',
     '      const { id, width, height, buffer } = msg;',
     '      const data = new Uint8ClampedArray(buffer);',
     '      const plane = width * height;',
@@ -308,11 +352,11 @@
     '        float[2*plane + p] = (data[i + 2] / 127.5) - 1;',
     '      }',
     '      const tensor = new ort.Tensor("float32", float, [1, 3, height, width]);',
-    '      const feeds = {}; feeds[inputName] = tensor;',
+    '      const feeds = {}; feeds[entry.inputName] = tensor;',
     '      const t0 = self.performance.now();',
-    '      const results = await session.run(feeds);',
+    '      const results = await entry.session.run(feeds);',
     '      const ms = self.performance.now() - t0;',
-    '      const out = results[outputName];',
+    '      const out = results[entry.outputName];',
     '      const od = out.data;',
     '      const oh = out.dims[2], ow = out.dims[3];',
     '      const oplane = oh * ow;',
@@ -329,7 +373,7 @@
     '        rgba[p*4 + 2] = clamp255(od[2*oplane + p] * scale + offset);',
     '        rgba[p*4 + 3] = 255;',
     '      }',
-    '      self.postMessage({ type: "result", id, width: ow, height: oh, buffer: rgba.buffer, ms }, [rgba.buffer]);',
+    '      self.postMessage({ type: "result", id, style: activeStyle, width: ow, height: oh, buffer: rgba.buffer, ms }, [rgba.buffer]);',
     '    }catch(err){',
     '      self.postMessage({ type: "error", id: msg.id, message: String((err && err.message) || err) });',
     '    }',
@@ -362,52 +406,100 @@
     return buf.buffer;
   }
 
-  function loadAnimeGAN(){
+  function loadStyle(styleId){
     return new Promise(async (resolve, reject) => {
+      if(loadedStyles.has(styleId)){ resolve(); return; }
+      const style = STYLES.find(s => s.id === styleId);
+      if(!style){ reject(new Error('Unknown style: ' + styleId)); return; }
       try{
-        setStatus('Downloading AnimeGANv2 model…');
+        setStatus('Downloading ' + style.label + ' model…');
         modelProgress.classList.add('show');
-        const buf = await fetchModelBuffer(MODEL_URL, (p) => {
+        const buf = await fetchModelBuffer(style.url, (p) => {
           modelProgressBar.style.width = Math.round(p*100) + '%';
-          setStatus('Downloading AnimeGANv2 model… ' + Math.round(p*100) + '%');
+          setStatus('Downloading ' + style.label + ' model… ' + Math.round(p*100) + '%');
         });
 
-        setStatus('Starting inference worker…');
-        animeWorker = createAnimeWorker();
-        animeWorker.onmessage = (e) => handleWorkerMessage(e.data);
-        animeWorker.onerror = (e) => {
-          if(!workerReady) reject(new Error(e.message || 'Worker failed to start'));
-        };
+        if(!animeWorker){
+          setStatus('Starting inference worker…');
+          animeWorker = createAnimeWorker();
+          animeWorker.onmessage = (e) => handleWorkerMessage(e.data);
+          animeWorker.onerror = (e) => reject(new Error(e.message || 'Worker failed to start'));
+        }
 
-        const onReadyOnce = (data) => {
-          if(data.type === 'ready'){
+        const onLoadMsg = (e) => {
+          const data = e.data;
+          if(data.type === 'loaded' && data.style === styleId){
+            animeWorker.removeEventListener('message', onLoadMsg);
+            loadedStyles.add(styleId);
             workerReady = true;
             modelProgress.classList.remove('show');
             setStatus('');
             resolve();
-          } else if(data.type === 'error'){
+          } else if(data.type === 'error' && data.style === styleId){
+            animeWorker.removeEventListener('message', onLoadMsg);
             reject(new Error(data.message));
           }
         };
-        // Temporarily intercept the first message to resolve/reject this load.
-        const originalHandler = animeWorker.onmessage;
-        animeWorker.onmessage = (e) => {
-          onReadyOnce(e.data);
-          animeWorker.onmessage = (ev) => handleWorkerMessage(ev.data);
-        };
+        animeWorker.addEventListener('message', onLoadMsg);
 
-        animeWorker.postMessage(
-          { type: 'init', modelBuffer: buf, ortUrl: ORT_BASE + 'ort.min.js', ortBase: ORT_BASE },
-          [buf]
-        );
+        animeWorker.postMessage({ type: 'load', style: styleId, modelBuffer: buf, ortUrl: ORT_BASE + 'ort.min.js', ortBase: ORT_BASE }, [buf]);
       }catch(err){
         reject(err);
       }
     });
   }
 
+  // Switch the active style. If it's already cached in the worker this is
+  // instant (no re-download); otherwise it downloads + loads in the
+  // background while the previously active style keeps rendering, so the
+  // window never goes blank mid-switch.
+  async function switchStyle(styleId){
+    if(styleId === activeStyle && loadedStyles.has(styleId)) return;
+    if(loadedStyles.has(styleId)){
+      activeStyle = styleId;
+      animeWorker.postMessage({ type: 'activate', style: styleId });
+      lastStyled = null; crossfadeFrom = null; // don't crossfade between two different styles
+      updateModelTag();
+      return;
+    }
+    switchingStyle = true;
+    styleSelect.disabled = true;
+    try{
+      await loadStyle(styleId);
+      activeStyle = styleId;
+      animeWorker.postMessage({ type: 'activate', style: styleId });
+      lastStyled = null; crossfadeFrom = null;
+      updateModelTag();
+    }catch(err){
+      showError('Could not load that style (' + (err && err.message ? err.message : err) + ').');
+      styleSelect.value = activeStyle;
+    }finally{
+      switchingStyle = false;
+      styleSelect.disabled = false;
+    }
+  }
+
+  function populateStyleSelect(){
+    styleSelect.innerHTML = '';
+    STYLES.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id; opt.textContent = s.label;
+      styleSelect.appendChild(opt);
+    });
+    styleSelect.value = activeStyle;
+    styleSelect.addEventListener('change', () => switchStyle(styleSelect.value));
+    updateModelTag();
+  }
+  populateStyleSelect();
+
+  function updateModelTag(){
+    const s = STYLES.find(s => s.id === activeStyle);
+    modelTag.textContent = 'AnimeGANv3 · ' + (s ? s.label : activeStyle);
+  }
+
   function handleWorkerMessage(data){
     if(data.type === 'result'){
+      if(data.style !== activeStyle){ workerBusy = false; return; } // stale result from a style we've since switched away from
       const { width, height, buffer, ms } = data;
       const arr = new Uint8ClampedArray(buffer);
       const imgData = new ImageData(arr, width, height);
@@ -464,12 +556,13 @@
     }
 
     try{
-      if(!workerReady) await loadAnimeGAN();
+      if(!loadedStyles.has(activeStyle)) await loadStyle(activeStyle);
+      animeWorker.postMessage({ type: 'activate', style: activeStyle });
     }catch(err){
       modelProgress.classList.remove('show');
-      showError('AnimeGANv2 model failed to load (' + (err && err.message ? err.message : err) +
-        '). This sandbox may be blocking the request to Hugging Face — download this HTML file ' +
-        'and open it from a local server instead.');
+      showError('AnimeGANv3 model failed to load (' + (err && err.message ? err.message : err) +
+        '). This sandbox may be blocking the request to GitHub/Hugging Face — download this HTML ' +
+        'file and open it from a local server instead.');
       startBtn.disabled = false; startBtn.textContent = 'Start camera'; setStatus('');
       return;
     }
@@ -490,6 +583,7 @@
     setDot(dotCam,''); setDot(dotHandL,''); setDot(dotHandR,''); setDot(dotWindow,'');
     windowLabel.textContent = 'WINDOW';
     lastStyled = null;
+    crossfadeFrom = null;
   }
 
   // ---------- main loop (runs every animation frame, never blocked by inference) ----------
@@ -580,7 +674,7 @@
   // Fire off an inference request without blocking; ignored if the worker is
   // still busy with a previous request (its result will simply arrive later).
   function maybeInfer(procCanvas512){
-    if(workerBusy || !animeWorker || !workerReady) return;
+    if(workerBusy || !animeWorker || !workerReady || !loadedStyles.has(activeStyle)) return;
     workerBusy = true;
     setDot(dotWindow, 'busy');
     const imgData = procCanvas512.getContext('2d').getImageData(0, 0, MODEL_SIZE, MODEL_SIZE);
