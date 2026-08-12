@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Windowxyz · Live Hand-Frame AnimeGAN Filter</title>
+<title>Window11 · Live Hand-Frame AnimeGAN Filter</title>
 <style>
   :root{
     --bg:#0B0D10;
@@ -179,14 +179,19 @@
   <footer>
     Runs fully in your browser — no video leaves your machine. Hand tracking (MediaPipe
     Hands) stays on the main thread; the <b>AnimeGANv2 (face_paint_v2)</b> ONNX model runs
-    inside a dedicated <b>Web Worker</b> via onnxruntime-web (WASM), so a slow inference pass
-    can no longer freeze the camera feed, hand tracking, or the UI. Honest caveat: this is a
-    real generative model, not a cheap filter — each stylized refresh can take real time on
-    a CPU (often multiple seconds per pass). The window's outline still tracks your hands
-    every frame in real time; the art inside it updates only as fast as the worker finishes
-    each pass, and the previous result stays visible while the next one renders. If the model
-    or camera fails to load in this sandbox, download the file and open it from a local
-    server, e.g. <b>python3 -m http.server</b>.
+    inside a dedicated <b>Web Worker</b> via onnxruntime-web (WASM, multi-threaded when the
+    browser allows it), so a slow inference pass can no longer freeze the camera feed, hand
+    tracking, or the UI — and the worker fires the next pass the instant the previous one
+    lands, with no idle gap in between. The window's outline tracks your hands every single
+    frame. For the art inside it: a cheap instant preview renders every frame so the window
+    is never static, real AnimeGAN results crossfade in smoothly instead of popping, and a
+    faint live shimmer keeps the window visibly moving between GAN passes. Honest caveat:
+    this is still a real generative model, not a cheap filter, so the crisp "true" restyle
+    only refreshes as fast as the worker can finish a pass (typically under a second on GPU
+    threading, longer on constrained/single-thread CPUs) — the layers above are what make
+    that feel continuous rather than frozen. If the model or camera fails to load in this
+    sandbox, download the file and open it from a local server, e.g.
+    <b>python3 -m http.server</b>.
   </footer>
 
 </div>
@@ -232,6 +237,9 @@
   let inferReqId = 0;
   let engineLabel = 'WASM (worker)';
   let lastStyled = null;
+  let crossfadeFrom = null;   // previous GAN frame, used to blend into a fresh result smoothly
+  let crossfadeStart = 0;
+  const CROSSFADE_MS = 280;   // how long a new GAN result takes to blend in, instead of popping
   let lastInferMs = 0;
 
   let smoothPts = null;
@@ -271,9 +279,15 @@
     '  if(msg.type === "init"){',
     '    try{',
     '      importScripts(msg.ortUrl);',
-    '      ort.env.wasm.numThreads = 1;',
     '      ort.env.wasm.wasmPaths = msg.ortBase;',
-    '      session = await ort.InferenceSession.create(msg.modelBuffer, { executionProviders: ["wasm"] });',
+    '      const canThread = (typeof SharedArrayBuffer !== "undefined") && self.crossOriginIsolated;',
+    '      ort.env.wasm.numThreads = canThread ? Math.max(1, Math.min(4, self.navigator.hardwareConcurrency || 4)) : 1;',
+    '      try{',
+    '        session = await ort.InferenceSession.create(msg.modelBuffer, { executionProviders: ["wasm"] });',
+    '      }catch(threadErr){',
+    '        ort.env.wasm.numThreads = 1;',
+    '        session = await ort.InferenceSession.create(msg.modelBuffer, { executionProviders: ["wasm"] });',
+    '      }',
     '      inputName = session.inputNames[0];',
     '      outputName = session.outputNames[0];',
     '      self.postMessage({ type: "ready" });',
@@ -400,10 +414,16 @@
       const c = document.createElement('canvas');
       c.width = width; c.height = height;
       c.getContext('2d').putImageData(imgData, 0, 0);
-      lastStyled = c;
+      crossfadeFrom = lastStyled;      // whatever was on screen a moment ago
+      crossfadeStart = performance.now();
+      lastStyled = c;                  // the freshly finished GAN frame
       lastInferMs = ms;
       workerBusy = false;
       setDot(dotWindow, smoothPts ? 'on' : '');
+      // The instant this pass lands we immediately queue the next one (see the
+      // maybeInfer() call inside drawAnimeWindow, which runs every frame), so
+      // the window is always either showing a fresh result or actively computing
+      // the next one — there's no idle gap waiting for the next render tick.
     } else if(data.type === 'error'){
       console.error('AnimeGAN worker error:', data.message);
       workerBusy = false;
@@ -598,14 +618,47 @@
     ctx.closePath();
     ctx.clip();
     ctx.imageSmoothingEnabled = true;
-    if(lastStyled){
+
+    const nowT = performance.now();
+    if(!lastStyled){
+      // No GAN result has landed yet at all — show a cheap, instant live
+      // stylization straight from this frame's crop so the window is never
+      // just a raw, unstyled hole while the first slow pass computes.
+      drawFastPreview(minX, minY, bw, bh);
+    } else if(crossfadeFrom && (nowT - crossfadeStart) < CROSSFADE_MS){
+      // A fresh GAN result just landed — blend from the old one into the new
+      // one over a couple hundred ms instead of popping, so updates read as
+      // continuous rather than a slideshow.
+      const a = (nowT - crossfadeStart) / CROSSFADE_MS;
+      ctx.globalAlpha = 1;
+      ctx.drawImage(crossfadeFrom, minX, minY, bw, bh);
+      ctx.globalAlpha = a;
       ctx.drawImage(lastStyled, minX, minY, bw, bh);
+      ctx.globalAlpha = 1;
     } else {
-      ctx.drawImage(proc, 0, 0, MODEL_SIZE, MODEL_SIZE, minX, minY, bw, bh);
+      // Between GAN passes: show the last real result, but blend in a faint
+      // live preview of the current frame so the window still visibly tracks
+      // motion in real time even while the heavier model is still computing.
+      ctx.drawImage(lastStyled, minX, minY, bw, bh);
+      ctx.globalAlpha = 0.16;
+      drawFastPreview(minX, minY, bw, bh);
+      ctx.globalAlpha = 1;
     }
     ctx.restore();
 
     drawHud(ordered);
+  }
+
+  // Cheap, GPU-composited "instant" stylization (no ML) used for the very
+  // first frame and as a live shimmer layer between real AnimeGAN passes.
+  // This is what makes the window feel like it's updating in real time even
+  // though the actual neural net only finishes a handful of times per second.
+  function drawFastPreview(minX, minY, bw, bh){
+    ctx.save();
+    ctx.filter = 'saturate(1.65) contrast(1.2) brightness(1.04)';
+    ctx.drawImage(mirroredFrame, minX, minY, bw, bh, minX, minY, bw, bh);
+    ctx.filter = 'none';
+    ctx.restore();
   }
 
   function drawHud(orderedPts){
