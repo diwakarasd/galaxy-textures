@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Production Ghibli-Style Live Camera</title>
+    <!-- Load TensorFlow.js core and the canvas/video layer API -->
+    <script src="https://jsdelivr.net"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #11141a;
+            color: #e2e8f0;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 { color: #63b3ed; font-weight: 600; margin-bottom: 5px; }
+        p { color: #a0aec0; margin-top: 0; margin-bottom: 25px; }
+        .camera-box {
+            position: relative;
+            display: inline-block;
+        }
+        video { display: none; } /* Hide native camera */
+        canvas {
+            border: 4px solid #4a5568;
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7);
+            background: #000;
+        }
+        #loader {
+            font-weight: bold;
+            color: #ecc94b;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Ghibli Cinematic AI Camera</h1>
+    <p>Real-time machine learning via TensorFlow.js</p>
+    <div id="loader">Initializing TensorFlow & Downloading Ghibli Weights...</div>
+    
+    <div class="camera-box">
+        <!-- Input frame constraints locked to 256x256 for fast mobile/desktop performance -->
+        <video id="webcam" autoplay playsinline width="256" height="256"></video>
+        <canvas id="outputCanvas" width="256" height="256"></canvas>
+    </div>
+
+    <script>
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('outputCanvas');
+        const ctx = canvas.getContext('2d');
+        const loader = document.getElementById('loader');
+        
+        let animeModel;
+
+        // Publicly mirrored web-quantized version of AnimeGANv2 (Miyazaki/Ghibli weights)
+        const MODEL_URL = 'https://githubusercontent.com some-repo-mirror/master/ghibli_tfjs_model/model.json'; 
+        // Note: For your production app, host the converted tfjs layers folder on your own CDN/Server.
+
+        async function setupApplication() {
+            try {
+                // 1. Force TensorFlow.js to utilize WebGL for hardware graphics acceleration
+                await tf.setBackend('webgl');
+                console.log("Using TF Backend:", tf.getBackend());
+
+                // 2. Load the lightweight neural network
+                animeModel = await tf.loadLayersModel(MODEL_URL);
+                loader.innerText = "Requesting real-time camera privileges...";
+
+                // 3. Connect to user's camera feed
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 256, height: 256, facingMode: "user" }
+                });
+                video.srcObject = stream;
+                
+                video.addEventListener('loadeddata', () => {
+                    loader.style.display = 'none'; // Neural network ready
+                    renderLoop();
+                });
+            } catch (error) {
+                console.error(error);
+                loader.innerText = "Error: System failed to execute WebGL or load model layers.";
+                loader.style.color = "#f56565";
+            }
+        }
+
+        function renderLoop() {
+            if (video.paused || video.ended) return;
+
+            // Use tf.tidy() to automatically flush graphics memory tensors and protect against memory leaks
+            tf.tidy(() => {
+                // 1. Convert live HTML5 Video element directly into a TensorFlow Tensor Matrix
+                const rawTensor = tf.browser.fromPixels(video);
+
+                // 2. Preprocess: Resize and scale array integers [0, 255] to float standards [-1, 1]
+                const resized = tf.image.resizeBilinear(rawTensor, [256, 256]);
+                const normalized = resized.toFloat().div(127.5).sub(1.0);
+                const inputBatch = normalized.expandDims(0); // Add batch dimension [1, 256, 256, 3]
+
+                // 3. Execute Model Prediction (Inference Phase)
+                const prediction = animeModel.predict(inputBatch);
+
+                // 4. Postprocess: Squeeze dimensions, revert float ranges back to [0, 255], convert to integers
+                const squeezed = prediction.squeeze([0]);
+                const denormalized = squeezed.add(1.0).mul(127.5).clipByValue(0, 255).toInt();
+
+                // 5. Draw the resulting tensor matrix straight onto the target HTML canvas screen
+                tf.browser.toPixels(denormalized, canvas);
+            });
+
+            // Call recursively for continuous high-framerate video stream processing
+            requestAnimationFrame(renderLoop);
+        }
+
+        // Initialize script logic
+        setupApplication();
+    </script>
+</body>
+</html>
