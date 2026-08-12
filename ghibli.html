@@ -229,22 +229,13 @@
   // exist inside the Gradio Space's private inference code, so there's no stable CORS-
   // enabled URL for them to fetch from a browser.)
   const STYLES = [
-  {
-    id: 'hayao',
-    label: 'Hayao',
-    url: './AnimeGANv3_Hayao_STYLE_36.onnx'
-  },
-  {
-    id: 'shinkai',
-    label: 'Shinkai',
-    url: './AnimeGANv3_Shinkai_37.onnx'
-  },
-  {
-    id: 'sketch',
-    label: 'Portrait Sketch',
-    url: './AnimeGANv3_PortraitSketch_25.onnx'
-  }
-];
+    { id: 'hayao',   label: 'Hayao',
+      url: './AnimeGANv3_Hayao_STYLE_36.onnx' },
+    { id: 'shinkai', label: 'Shinkai',
+      url: './AnimeGANv3_Shinkai_37.onnx' },
+    { id: 'sketch',  label: 'Portrait Sketch',
+      url: './AnimeGANv3_PortraitSketch_25.onnx' }
+  ];
   const ORT_BASE = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/';
   const MODEL_SIZE = 512; // 512 = 16×32, a valid input size for every style above
 
@@ -342,7 +333,16 @@
     '        ort.env.wasm.numThreads = 1;',
     '        session = await ort.InferenceSession.create(msg.modelBuffer, { executionProviders: ["wasm"] });',
     '      }',
-    '      sessions[msg.style] = { session, inputName: session.inputNames[0], outputName: session.outputNames[0] };',
+    '      const inputName = session.inputNames[0];',
+    '      const outputName = session.outputNames[0];',
+    '      const inputMeta = session.inputMetadata[inputName];',
+    '      sessions[msg.style] = {',
+    '        session,',
+    '        inputName,',
+    '        outputName,',
+    '        inputDims: inputMeta ? inputMeta.dimensions : null',
+    '      };',
+    '      console.log("AnimeGAN model:", msg.style, "input:", inputName, inputMeta ? inputMeta.dimensions : "unknown", "output:", outputName);',
     '      if(!activeStyle) activeStyle = msg.style;',
     '      self.postMessage({ type: "loaded", style: msg.style });',
     '    }catch(err){',
@@ -360,34 +360,64 @@
     '      if(!entry) throw new Error("No style loaded yet");',
     '      const { id, width, height, buffer } = msg;',
     '      const data = new Uint8ClampedArray(buffer);',
-    '      const plane = width * height;',
-    '      const float = new Float32Array(3 * plane);',
-    '      for(let i = 0, p = 0; i < data.length; i += 4, p++){',
-    '        float[p]           = (data[i]     / 127.5) - 1;',
-    '        float[plane + p]   = (data[i + 1] / 127.5) - 1;',
-    '        float[2*plane + p] = (data[i + 2] / 127.5) - 1;',
+    '      const inputDims = entry.inputDims;',
+    '      let tensor;',
+    '      if(inputDims && inputDims.length === 4 && inputDims[3] === 3){',
+    '        // NHWC: [1, H, W, 3]',
+    '        const float = new Float32Array(width * height * 3);',
+    '        for(let i = 0, p = 0; i < data.length; i += 4, p++){',
+    '          float[p * 3]     = (data[i]     / 127.5) - 1;',
+    '          float[p * 3 + 1] = (data[i + 1] / 127.5) - 1;',
+    '          float[p * 3 + 2] = (data[i + 2] / 127.5) - 1;',
+    '        }',
+    '        tensor = new ort.Tensor("float32", float, [1, height, width, 3]);',
+    '      }else{',
+    '        // NCHW: [1, 3, H, W]',
+    '        const plane = width * height;',
+    '        const float = new Float32Array(3 * plane);',
+    '        for(let i = 0, p = 0; i < data.length; i += 4, p++){',
+    '          float[p]             = (data[i]     / 127.5) - 1;',
+    '          float[plane + p]     = (data[i + 1] / 127.5) - 1;',
+    '          float[2 * plane + p] = (data[i + 2] / 127.5) - 1;',
+    '        }',
+    '        tensor = new ort.Tensor("float32", float, [1, 3, height, width]);',
     '      }',
-    '      const tensor = new ort.Tensor("float32", float, [1, 3, height, width]);',
     '      const feeds = {}; feeds[entry.inputName] = tensor;',
     '      const t0 = self.performance.now();',
     '      const results = await entry.session.run(feeds);',
     '      const ms = self.performance.now() - t0;',
     '      const out = results[entry.outputName];',
     '      const od = out.data;',
-    '      const oh = out.dims[2], ow = out.dims[3];',
-    '      const oplane = oh * ow;',
+    '      const dims = out.dims;',
+    '      let oh, ow, rgba;',
     '      let mn = Infinity, mx = -Infinity;',
     '      for(let i = 0; i < od.length; i += 37){ if(od[i] < mn) mn = od[i]; if(od[i] > mx) mx = od[i]; }',
     '      let scale, offset;',
     '      if(mn < -0.05){ scale = 127.5; offset = 127.5; }',
     '      else if(mx <= 1.05){ scale = 255; offset = 0; }',
     '      else { scale = 1; offset = 0; }',
-    '      const rgba = new Uint8ClampedArray(oplane * 4);',
-    '      for(let p = 0; p < oplane; p++){',
-    '        rgba[p*4]     = clamp255(od[p]           * scale + offset);',
-    '        rgba[p*4 + 1] = clamp255(od[oplane + p]   * scale + offset);',
-    '        rgba[p*4 + 2] = clamp255(od[2*oplane + p] * scale + offset);',
-    '        rgba[p*4 + 3] = 255;',
+    '      if(dims.length === 4 && dims[3] === 3){',
+    '        // NHWC output: [1, H, W, 3]',
+    '        oh = dims[1]; ow = dims[2];',
+    '        const pixels = oh * ow;',
+    '        rgba = new Uint8ClampedArray(pixels * 4);',
+    '        for(let p = 0; p < pixels; p++){',
+    '          rgba[p * 4]     = clamp255(od[p * 3]     * scale + offset);',
+    '          rgba[p * 4 + 1] = clamp255(od[p * 3 + 1] * scale + offset);',
+    '          rgba[p * 4 + 2] = clamp255(od[p * 3 + 2] * scale + offset);',
+    '          rgba[p * 4 + 3] = 255;',
+    '        }',
+    '      }else{',
+    '        // NCHW output: [1, 3, H, W]',
+    '        oh = dims[2]; ow = dims[3];',
+    '        const oplane = oh * ow;',
+    '        rgba = new Uint8ClampedArray(oplane * 4);',
+    '        for(let p = 0; p < oplane; p++){',
+    '          rgba[p * 4]     = clamp255(od[p] * scale + offset);',
+    '          rgba[p * 4 + 1] = clamp255(od[oplane + p] * scale + offset);',
+    '          rgba[p * 4 + 2] = clamp255(od[2 * oplane + p] * scale + offset);',
+    '          rgba[p * 4 + 3] = 255;',
+    '        }',
     '      }',
     '      self.postMessage({ type: "result", id, style: activeStyle, width: ow, height: oh, buffer: rgba.buffer, ms }, [rgba.buffer]);',
     '    }catch(err){',
@@ -414,7 +444,10 @@
         'cross-origin requests, or this sandbox may be blocking it. Try opening this ' +
         'file from your own domain or a local server.');
     }
-    if(!resp.ok) throw new Error('Model download failed: HTTP ' + resp.status);
+    if(!resp.ok){
+      if(resp.status === 404) throw new Error('Model file not found (HTTP 404): ' + url);
+      throw new Error('Model download failed: HTTP ' + resp.status);
+    }
     const total = parseInt(resp.headers.get('content-length') || '0', 10);
     const reader = resp.body.getReader();
     let received = 0;
@@ -585,9 +618,9 @@
       animeWorker.postMessage({ type: 'activate', style: activeStyle });
     }catch(err){
       modelProgress.classList.remove('show');
-      showError('AnimeGANv3 model failed to load (' + (err && err.message ? err.message : err) +
-        '). This sandbox may be blocking the request to GitHub/Hugging Face — download this HTML ' +
-        'file and open it from a local server instead.');
+      showError('AnimeGANv3 model failed to load: ' +
+        (err && err.message ? err.message : err) +
+        '. Make sure the ONNX files are in the same folder as this HTML and open it from a local server.');
       startBtn.disabled = false; startBtn.textContent = 'Start camera'; setStatus('');
       return;
     }
