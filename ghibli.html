@@ -171,13 +171,8 @@
 
   <div class="controls" id="controls" style="display:none;">
     <div class="group">
-      <label>Quality</label>
-      <select id="qualitySelect">
-        <option value="128">Fast (128px)</option>
-        <option value="224" selected>Balanced (224px)</option>
-        <option value="320">Detailed (320px)</option>
-        <option value="512">Native (512px)</option>
-      </select>
+      <label>Model input</label>
+      <span style="font-family:var(--mono); font-size:11.5px; color:var(--text);">512×512 (fixed)</span>
     </div>
     <div class="spacer"></div>
     <button class="btn ghost" id="snapBtn">Save frame</button>
@@ -192,10 +187,12 @@
     Both are fetched from a CDN / Hugging Face on start, so this needs an internet
     connection the first time. Honest caveat: a real neural style-transfer model is much
     heavier than a canvas filter — the window's <i>position</i> tracks your hands every
-    frame, but the <i>stylized pixels</i> only refresh as fast as your device can run the
-    model (fast GPUs: a few frames per second; CPU-only WASM: noticeably slower). Lower the
-    Quality setting if it feels laggy. If the model or camera fails to load in this sandbox,
-    download the file and open it from a local server, e.g. <b>python3 -m http.server</b>.
+    frame, but the <i>stylized pixels</i> only refresh as fast as your device can run one
+    512×512 forward pass through the network (this model's exported graph has a fixed input
+    size, so it always runs at 512×512 regardless of window size). Runs on the CPU via WASM,
+    so each refresh behaves more like "snap a stylized photo every few seconds" than real-time
+    video — typically well under 1 fps on a laptop CPU. If the model or camera fails to load in this sandbox, download the file and
+    open it from a local server, e.g. <b>python3 -m http.server</b>.
   </footer>
 
 </div>
@@ -225,7 +222,7 @@
   const dotHandR = document.getElementById('dotHandR');
   const dotWindow = document.getElementById('dotWindow');
   const windowLabel = document.getElementById('windowLabel');
-  const qualitySelect = document.getElementById('qualitySelect');
+  const MODEL_SIZE = 512; // this ONNX export has a fixed [1,3,512,512] input shape
 
   let W = canvas.width, H = canvas.height;
   let running = false;
@@ -301,13 +298,12 @@
     });
 
     setStatus('Initializing model…');
-    try{
-      ortSession = await ort.InferenceSession.create(buf, { executionProviders: ['webgl','wasm'] });
-      engineLabel = 'WebGL/WASM';
-    }catch(e){
-      ortSession = await ort.InferenceSession.create(buf, { executionProviders: ['wasm'] });
-      engineLabel = 'WASM (CPU)';
-    }
+    // NOTE: this model leans heavily on InstanceNormalization layers, which
+    // onnxruntime-web's WebGL backend does not run correctly for this graph
+    // (it throws mid-inference rather than at session-creation time). WASM
+    // is slower but actually produces correct output, so it's used directly.
+    ortSession = await ort.InferenceSession.create(buf, { executionProviders: ['wasm'] });
+    engineLabel = 'WASM (CPU)';
     ortInputName = ortSession.inputNames[0];
     ortOutputName = ortSession.outputNames[0];
     modelProgress.classList.remove('show');
@@ -513,8 +509,7 @@
     setDot(dotWindow, 'busy');
     const t0 = performance.now();
     try{
-      const size = parseInt(qualitySelect.value, 10);
-      const tensor = toTensor(cropCanvas, size);
+      const tensor = toTensor(cropCanvas, MODEL_SIZE);
       const feeds = {}; feeds[ortInputName] = tensor;
       const results = await ortSession.run(feeds);
       lastStyled = tensorToCanvas(results[ortOutputName]);
