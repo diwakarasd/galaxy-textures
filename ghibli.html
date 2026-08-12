@@ -229,13 +229,22 @@
   // exist inside the Gradio Space's private inference code, so there's no stable CORS-
   // enabled URL for them to fetch from a browser.)
   const STYLES = [
-    { id: 'hayao',   label: 'Hayao (Miyazaki-style landscape)',
-      url: 'https://raw.githubusercontent.com/TachibanaYoshino/AnimeGANv3/master/deploy/AnimeGANv3_Hayao_36.onnx' },
-    { id: 'shinkai', label: 'Shinkai (Makoto Shinkai-style landscape)',
-      url: 'https://raw.githubusercontent.com/TachibanaYoshino/AnimeGANv3/master/deploy/AnimeGANv3_Shinkai_37.onnx' },
-    { id: 'sketch',  label: 'Portrait Sketch (face-focused)',
-      url: 'https://huggingface.co/public-data/AnimeGANv3-portrait-sketch/resolve/main/AnimeGANv3_PortraitSketch_25.onnx' }
-  ];
+  {
+    id: 'hayao',
+    label: 'Hayao',
+    url: './models/AnimeGANv3_Hayao_36.onnx'
+  },
+  {
+    id: 'shinkai',
+    label: 'Shinkai',
+    url: './models/AnimeGANv3_Shinkai_37.onnx'
+  },
+  {
+    id: 'sketch',
+    label: 'Portrait Sketch',
+    url: './models/AnimeGANv3_PortraitSketch_25.onnx'
+  }
+];
   const ORT_BASE = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/';
   const MODEL_SIZE = 512; // 512 = 16×32, a valid input size for every style above
 
