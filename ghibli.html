@@ -217,15 +217,22 @@
 (function(){
   // Real AnimeGANv3 (TachibanaYoshino) ONNX weights — not v2. "face_paint" was a
   // v2-only style name; v3's public, directly-downloadable weights are these three.
-  // (v3 also has USA/Disney/Arcane/Kpop/Trump/JP_face demo styles, but those are only
-  // bundled inside a Gradio Space's private inference code with no standalone .onnx
-  // URL to fetch from a browser — so they're left out rather than pointing at a link
-  // that would just 404.)
+  // Hosted via raw.githubusercontent.com / huggingface.co "resolve" links rather than
+  // GitHub's "releases/download/..." asset host, because release-download assets don't
+  // send an Access-Control-Allow-Origin header and a page fetching them cross-origin
+  // gets blocked by CORS. raw.githubusercontent.com serves the identical bytes (these
+  // files are committed in-repo under deploy/, not just attached to the release) and
+  // does send CORS headers, as does Hugging Face's /resolve/ endpoint.
+  // (v3 also has USA/Disney/Arcane/Kpop/Trump/JP_face/Ghibli/etc. demo styles, but per
+  // the repo's own Releases page only Hayao + Shinkai were ever published as a public,
+  // versioned .onnx release — the rest are shared one-off via Patreon posts or only
+  // exist inside the Gradio Space's private inference code, so there's no stable CORS-
+  // enabled URL for them to fetch from a browser.)
   const STYLES = [
     { id: 'hayao',   label: 'Hayao (Miyazaki-style landscape)',
-      url: 'https://github.com/TachibanaYoshino/AnimeGANv3/releases/download/v1.1.0/AnimeGANv3_Hayao_36.onnx' },
+      url: 'https://raw.githubusercontent.com/TachibanaYoshino/AnimeGANv3/master/deploy/AnimeGANv3_Hayao_36.onnx' },
     { id: 'shinkai', label: 'Shinkai (Makoto Shinkai-style landscape)',
-      url: 'https://github.com/TachibanaYoshino/AnimeGANv3/releases/download/v1.1.0/AnimeGANv3_Shinkai_37.onnx' },
+      url: 'https://raw.githubusercontent.com/TachibanaYoshino/AnimeGANv3/master/deploy/AnimeGANv3_Shinkai_37.onnx' },
     { id: 'sketch',  label: 'Portrait Sketch (face-focused)',
       url: 'https://huggingface.co/public-data/AnimeGANv3-portrait-sketch/resolve/main/AnimeGANv3_PortraitSketch_25.onnx' }
   ];
@@ -387,7 +394,17 @@
   }
 
   async function fetchModelBuffer(url, onProgress){
-    const resp = await fetch(url);
+    let resp;
+    try{
+      resp = await fetch(url);
+    }catch(networkErr){
+      // A bare "Failed to fetch" here almost always means either no network route to
+      // the host (this sandbox) or a CORS rejection (no Access-Control-Allow-Origin
+      // on the response) — the browser deliberately hides which one for security.
+      throw new Error('Network/CORS error fetching model — the host may not allow ' +
+        'cross-origin requests, or this sandbox may be blocking it. Try opening this ' +
+        'file from your own domain or a local server.');
+    }
     if(!resp.ok) throw new Error('Model download failed: HTTP ' + resp.status);
     const total = parseInt(resp.headers.get('content-length') || '0', 10);
     const reader = resp.body.getReader();
@@ -418,7 +435,6 @@
           modelProgressBar.style.width = Math.round(p*100) + '%';
           setStatus('Downloading ' + style.label + ' model… ' + Math.round(p*100) + '%');
         });
-
         if(!animeWorker){
           setStatus('Starting inference worker…');
           animeWorker = createAnimeWorker();
